@@ -474,8 +474,6 @@ def handle_message(message):
         conn = get_db()
         cursor = conn.cursor()
         
-        # চেক করা যাক ইউজারের অলরেডি কোনো জিমেইল অ্যাসাইন করা আছে কি না যা এখনো ব্যবহার বা সাবমিট করা হয়নি
-        # অথবা আমরা নতুন একটি অব্যবহৃত জিমেইল খুঁজব
         assigned_emails = [row[0] for row in cursor.execute("SELECT email FROM assigned_gmails").fetchall()]
         
         selected_acc = None
@@ -489,7 +487,6 @@ def handle_message(message):
             bot.send_message(user_id, "❌ Sorry, all Gmail accounts have been distributed! Please check back later.")
             return
             
-        # জিমেইলটি সাময়িকভাবে রেজিস্টার করে রাখা যাতে অন্য কেউ না পায়
         cursor.execute("INSERT INTO assigned_gmails (email, user_id, status) VALUES (?, ?, 'assigned')", (selected_acc['email'], user_id))
         conn.commit()
         conn.close()
