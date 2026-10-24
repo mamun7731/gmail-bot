@@ -20,7 +20,6 @@ def init_db():
             balance REAL DEFAULT 0.0,
             hold_balance REAL DEFAULT 0.0,
             completed_count INTEGER DEFAULT 0,
-            current_idx INTEGER DEFAULT 0,
             referred_by INTEGER DEFAULT NULL
         )
     ''')
@@ -40,6 +39,13 @@ def init_db():
             text TEXT
         )
     ''')
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS assigned_gmails (
+            email TEXT PRIMARY KEY,
+            user_id INTEGER,
+            status TEXT DEFAULT 'assigned'
+        )
+    ''')
     conn.commit()
     conn.close()
 
@@ -51,7 +57,7 @@ def get_db():
 def get_user_data(user_id, referred_by=None):
     conn = get_db()
     cursor = conn.cursor()
-    cursor.execute("SELECT balance, hold_balance, completed_count, current_idx FROM users WHERE user_id = ?", (user_id,))
+    cursor.execute("SELECT balance, hold_balance, completed_count FROM users WHERE user_id = ?", (user_id,))
     row = cursor.fetchone()
     
     if not row:
@@ -65,11 +71,11 @@ def get_user_data(user_id, referred_by=None):
                 bot.send_message(referred_by, f"🎉 You received a ${REF_BONUS} referral bonus!")
             except:
                 pass
-        cursor.execute("SELECT balance, hold_balance, completed_count, current_idx FROM users WHERE user_id = ?", (user_id,))
+        cursor.execute("SELECT balance, hold_balance, completed_count FROM users WHERE user_id = ?", (user_id,))
         row = cursor.fetchone()
         
     conn.close()
-    return {"balance": row[0], "hold_balance": row[1], "completed_count": row[2], "current_idx": row[3]}
+    return {"balance": row[0], "hold_balance": row[1], "completed_count": row[2]}
 
 gmail_accounts = [
     {"first": "Masako", "last": "❌", "email": "izonuyujif168@gmail.com", "pass": "6zW1W4UhGgclbO", "year": "2000"},
@@ -465,16 +471,36 @@ def handle_message(message):
             return
 
     if "Register a new Gmail" in text:
-        current_idx = user_data["current_idx"]
-        acc = gmail_accounts[current_idx % len(gmail_accounts)]
+        conn = get_db()
+        cursor = conn.cursor()
+        
+        # চেক করা যাক ইউজারের অলরেডি কোনো জিমেইল অ্যাসাইন করা আছে কি না যা এখনো ব্যবহার বা সাবমিট করা হয়নি
+        # অথবা আমরা নতুন একটি অব্যবহৃত জিমেইল খুঁজব
+        assigned_emails = [row[0] for row in cursor.execute("SELECT email FROM assigned_gmails").fetchall()]
+        
+        selected_acc = None
+        for acc in gmail_accounts:
+            if acc['email'] not in assigned_emails:
+                selected_acc = acc
+                break
+                
+        if not selected_acc:
+            conn.close()
+            bot.send_message(user_id, "❌ Sorry, all Gmail accounts have been distributed! Please check back later.")
+            return
+            
+        # জিমেইলটি সাময়িকভাবে রেজিস্টার করে রাখা যাতে অন্য কেউ না পায়
+        cursor.execute("INSERT INTO assigned_gmails (email, user_id, status) VALUES (?, ?, 'assigned')", (selected_acc['email'], user_id))
+        conn.commit()
+        conn.close()
         
         response_text = (
             f"Register Gmail account using the specified data and get ${GMAIL_RATE:.2f}\n\n"
-            f"First name: {acc['first']}\n"
-            f"Last name: {acc['last']}\n"
-            f"Email: {acc['email']}\n"
-            f"Password: {acc['pass']}\n"
-            f"Year of birth: {acc['year']}\n\n"
+            f"First name: {selected_acc['first']}\n"
+            f"Last name: {selected_acc['last']}\n"
+            f"Email: {selected_acc['email']}\n"
+            f"Password: {selected_acc['pass']}\n"
+            f"Year of birth: {selected_acc['year']}\n\n"
             f"🔐 Be sure to use the specified data, otherwise the account will not be paid."
         )
         
@@ -531,7 +557,6 @@ def handle_message(message):
 @bot.callback_query_handler(func=lambda call: True)
 def callback_listener(call):
     user_id = call.message.chat.id
-    user_data = get_user_data(user_id)
     
     if call.data == "pay_bkash":
         user_states[user_id] = "payout_bkash"
@@ -562,12 +587,26 @@ def callback_listener(call):
         )
         
     elif call.data == "btn_done":
-        current_idx = user_data["current_idx"]
-        acc = gmail_accounts[current_idx % len(gmail_accounts)]
-        
         conn = get_db()
         cursor = conn.cursor()
-        cursor.execute("UPDATE users SET hold_balance = hold_balance + ?, current_idx = current_idx + 1 WHERE user_id = ?", (GMAIL_RATE, user_id))
+        cursor.execute("SELECT email FROM assigned_gmails WHERE user_id = ? AND status = 'assigned'", (user_id,))
+        assigned = cursor.fetchone()
+        
+        if not assigned:
+            conn.close()
+            bot.answer_callback_query(call.id, "No active task found!", show_alert=True)
+            return
+            
+        email = assigned[0]
+        acc = next((item for item in gmail_accounts if item["email"] == email), None)
+        
+        if not acc:
+            conn.close()
+            bot.answer_callback_query(call.id, "Account error!", show_alert=True)
+            return
+            
+        cursor.execute("UPDATE assigned_gmails SET status = 'submitted' WHERE email = ?", (email,))
+        cursor.execute("UPDATE users SET hold_balance = hold_balance + ? WHERE user_id = ?", (GMAIL_RATE, user_id))
         cursor.execute("INSERT INTO pending_tasks (user_id, email, password, status) VALUES (?, ?, ?, 'pending')", (user_id, acc['email'], acc['pass']))
         task_id = cursor.lastrowid
         conn.commit()
@@ -670,6 +709,12 @@ def callback_listener(call):
             bot.send_message(ADMIN_ID, f"⏳ Pending Task:\nUser ID: `{u_id}`\nEmail: `{email}`\nPassword: `{pwd}`", parse_mode="Markdown", reply_markup=markup)
 
     elif call.data == "btn_cancel":
+        conn = get_db()
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM assigned_gmails WHERE user_id = ? AND status = 'assigned'", (user_id,))
+        conn.commit()
+        conn.close()
+        
         bot.answer_callback_query(call.id, "Registration cancelled.")
         bot.edit_message_text(
             chat_id=user_id,
