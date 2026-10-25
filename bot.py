@@ -1,3 +1,6 @@
+import os
+import threading
+from flask import Flask
 import telebot
 import sqlite3
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton
@@ -10,6 +13,17 @@ ADMIN_ID = 5813365228
 GMAIL_RATE = 0.15
 MIN_PAYOUT = 0.20
 REF_BONUS = 0.02
+
+# --- Dummy Web Server to keep Render Alive ---
+app = Flask(__name__)
+
+@app.route('/')
+def home():
+    return "Bot is running!"
+
+def run_flask():
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host='0.0.0.0', port=port)
 
 def init_db():
     conn = sqlite3.connect("bot_database_v9.db")
@@ -287,7 +301,6 @@ gmail_accounts = [
     {"first": "Cai", "last": "❌", "email": "cai.murphy2199@gmail.com", "pass": "Cai#Murp6699", "year": "2000"},
     {"first": "Dara", "last": "❌", "email": "dara.bailey2200@gmail.com", "pass": "Dara!Bail7711", "year": "2000"}
 ]
-
 
 def main_menu():
     markup = ReplyKeyboardMarkup(resize_keyboard=True)
@@ -728,6 +741,9 @@ def callback_listener(call):
         user_states[user_id] = "awaiting_broadcast"
         bot.send_message(ADMIN_ID, "📢 Enter the broadcast message you want to send to all users:")
 
-print("Bot is running...")
-bot.delete_webhook()
-bot.infinity_polling(skip_pending=True)
+# Start Flask in a background thread so Render detects an active web port
+if __name__ == "__main__":
+    threading.Thread(target=run_flask).start()
+    print("Bot & Flask server are running...")
+    bot.delete_webhook()
+    bot.infinity_polling(skip_pending=True)
