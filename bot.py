@@ -15,7 +15,8 @@ MIN_PAYOUT = 0.20
 REF_BONUS = 0.02
 
 # Supabase PostgreSQL Database URL with updated password
-DATABASE_URL = "postgresql://postgres:Mamun347731@db.nadctophsunyanoxaqrv.supabase.co:5432/postgres"
+DATABASE_URL = "postgresql://postgres:mamun347731@db.ijussavmhziblqswfgwf.supabase.co:5432/postgres"
+
 
 # --- Flask Web Server to keep Render Alive ---
 app = Flask(__name__)
