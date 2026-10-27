@@ -344,7 +344,7 @@ gmail_accounts = [
     {"first": "Vince", "last": "❌", "email": "vincetyler2237@gmail.com", "pass": "Vinc!Tyle7788", "year": "2000"},
     {"first": "Wanda", "last": "❌", "email": "wandasoto2238@gmail.com", "pass": "Wand#Soto9900", "year": "2000"},
     {"first": "Yuri", "last": "❌", "email": "yurikyung2239@gmail.com", "pass": "Yuri!Kyun1122", "year": "2000"},
-    {"first": "Zoe", "last": "❌", "email": "zoezhang2240@gmail.com", "pass": "Zoe#Zhan3344", "year": "2000"}
+    {"first": "Zoe", "last": "❌", "email": "zoezhang2240@gmail.com", "pass": "Zoe#Zhan3344", "year": "2000"},
     {"first": "Zoya", "last": "❌", "email": "zoyazhang2241@gmail.com", "pass": "Zoya#Zhan5566", "year": "2000"},
     {"first": "Ali", "last": "❌", "email": "aliabbasi2242@gmail.com", "pass": "Ali!Abba7788", "year": "2000"},
     {"first": "Bano", "last": "❌", "email": "banokhan2243@gmail.com", "pass": "Bano#Khan9900", "year": "2000"},
@@ -506,7 +506,6 @@ gmail_accounts = [
     {"first": "Leman", "last": "❌", "email": "lemanpolat2399@gmail.com", "pass": "Lema#Pola1122", "year": "2000"},
     {"first": "Melisa", "last": "❌", "email": "melisadogan2400@gmail.com", "pass": "Meli!Doga3344", "year": "2000"}
 ]
-  
 
 def main_menu():
     markup = ReplyKeyboardMarkup(resize_keyboard=True)
