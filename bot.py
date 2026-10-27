@@ -1,8 +1,8 @@
 import os
 import threading
+import psycopg2
 from flask import Flask
 import telebot
-import sqlite3
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton
 
 TOKEN = '8788513514:AAGwboQDDtl198sib3_3GX3ahtmh0wg4iS0'
@@ -14,7 +14,10 @@ GMAIL_RATE = 0.15
 MIN_PAYOUT = 0.20
 REF_BONUS = 0.02
 
-# --- Dummy Web Server to keep Render Alive ---
+# Supabase PostgreSQL Database URL
+DATABASE_URL = "postgresql://postgres:mamun9894@db.nadctophsunyanoxaqrv.supabase.co:5432/postgres"
+
+# --- Flask Web Server to keep Render Alive ---
 app = Flask(__name__)
 
 @app.route('/')
@@ -25,22 +28,25 @@ def run_flask():
     port = int(os.environ.get("PORT", 10000))
     app.run(host='0.0.0.0', port=port)
 
+def get_db():
+    return psycopg2.connect(DATABASE_URL, sslmode='require')
+
 def init_db():
-    conn = sqlite3.connect("bot_database_v9.db")
+    conn = get_db()
     cursor = conn.cursor()
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS users (
-            user_id INTEGER PRIMARY KEY,
+            user_id BIGINT PRIMARY KEY,
             balance REAL DEFAULT 0.0,
             hold_balance REAL DEFAULT 0.0,
             completed_count INTEGER DEFAULT 0,
-            referred_by INTEGER DEFAULT NULL
+            referred_by BIGINT DEFAULT NULL
         )
     ''')
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS pending_tasks (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER,
+            id SERIAL PRIMARY KEY,
+            user_id BIGINT,
             email TEXT,
             password TEXT,
             status TEXT DEFAULT 'pending'
@@ -48,46 +54,45 @@ def init_db():
     ''')
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS history (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER,
+            id SERIAL PRIMARY KEY,
+            user_id BIGINT,
             text TEXT
         )
     ''')
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS assigned_gmails (
             email TEXT PRIMARY KEY,
-            user_id INTEGER,
+            user_id BIGINT,
             status TEXT DEFAULT 'assigned'
         )
     ''')
     conn.commit()
+    cursor.close()
     conn.close()
 
 init_db()
 
-def get_db():
-    return sqlite3.connect("bot_database_v9.db")
-
 def get_user_data(user_id, referred_by=None):
     conn = get_db()
     cursor = conn.cursor()
-    cursor.execute("SELECT balance, hold_balance, completed_count FROM users WHERE user_id = ?", (user_id,))
+    cursor.execute("SELECT balance, hold_balance, completed_count FROM users WHERE user_id = %s", (user_id,))
     row = cursor.fetchone()
     
     if not row:
-        cursor.execute("INSERT INTO users (user_id, referred_by) VALUES (?, ?)", (user_id, referred_by))
+        cursor.execute("INSERT INTO users (user_id, referred_by) VALUES (%s, %s) ON CONFLICT (user_id) DO NOTHING", (user_id, referred_by))
         conn.commit()
         if referred_by and referred_by != user_id:
-            cursor.execute("UPDATE users SET balance = balance + ? WHERE user_id = ?", (REF_BONUS, referred_by))
-            cursor.execute("INSERT INTO history (user_id, text) VALUES (?, ?)", (referred_by, f"+${REF_BONUS} Referral Bonus"))
+            cursor.execute("UPDATE users SET balance = balance + %s WHERE user_id = %s", (REF_BONUS, referred_by))
+            cursor.execute("INSERT INTO history (user_id, text) VALUES (%s, %s)", (referred_by, f"+${REF_BONUS} Referral Bonus"))
             conn.commit()
             try:
                 bot.send_message(referred_by, f"🎉 You received a ${REF_BONUS} referral bonus!")
             except:
                 pass
-        cursor.execute("SELECT balance, hold_balance, completed_count FROM users WHERE user_id = ?", (user_id,))
+        cursor.execute("SELECT balance, hold_balance, completed_count FROM users WHERE user_id = %s", (user_id,))
         row = cursor.fetchone()
         
+    cursor.close()
     conn.close()
     return {"balance": row[0], "hold_balance": row[1], "completed_count": row[2]}
 
@@ -363,6 +368,7 @@ def admin_panel(message):
     stats = cursor.fetchone()
     cursor.execute("SELECT COUNT(*) FROM pending_tasks WHERE status = 'pending'")
     pending_count = cursor.fetchone()[0]
+    cursor.close()
     conn.close()
     
     total_users = stats[0] or 0
@@ -389,7 +395,6 @@ def handle_message(message):
         state = user_states[user_id]
         if state in ["payout_bkash", "payout_nagad", "payout_crypto"]:
             method = "bKash" if state == "payout_bkash" else ("Nagad" if state == "payout_nagad" else "Crypto (BEP20)")
-            fee_text = "5 BDT Fee" if method in ["bKash", "Nagad"] else "0.03$ Fee"
             del user_states[user_id]
             
             bal = user_data["balance"]
@@ -399,9 +404,10 @@ def handle_message(message):
             
             conn = get_db()
             cursor = conn.cursor()
-            cursor.execute("UPDATE users SET balance = 0.0 WHERE user_id = ?", (user_id,))
-            cursor.execute("INSERT INTO history (user_id, text) VALUES (?, ?)", (user_id, f"-${bal:.2f} Payout via {method} ({text})"))
+            cursor.execute("UPDATE users SET balance = 0.0 WHERE user_id = %s", (user_id,))
+            cursor.execute("INSERT INTO history (user_id, text) VALUES (%s, %s)", (user_id, f"-${bal:.2f} Payout via {method} ({text})"))
             conn.commit()
+            cursor.close()
             conn.close()
             
             try:
@@ -409,14 +415,14 @@ def handle_message(message):
                 markup.add(InlineKeyboardButton("✅ Confirm & Send TXID", callback_data=f"payapp_{user_id}"))
                 bot.send_message(
                     ADMIN_ID,
-                    f"🔔 **New Payout Request!**\n\nUser ID: `{user_id}`\nMethod: `{method}`\nAmount: `${bal:.2f}` (Fee: {fee_text})\nDetails/Number: `{text}`",
+                    f"🔔 **New Payout Request!**\n\nUser ID: `{user_id}`\nMethod: `{method}`\nAmount: `${bal:.2f}`\nDetails/Number: `{text}`",
                     parse_mode="Markdown",
                     reply_markup=markup
                 )
             except:
                 pass
             
-            bot.send_message(user_id, f"✅ Withdrawal request of ${bal:.2f} via {method} submitted successfully! It will be processed soon.", reply_markup=main_menu())
+            bot.send_message(user_id, f"✅ Withdrawal request of ${bal:.2f} via {method} submitted successfully!", reply_markup=main_menu())
             return
             
         elif state.startswith("awaiting_txid_") and user_id == ADMIN_ID:
@@ -444,17 +450,18 @@ def handle_message(message):
             reason = text
             conn = get_db()
             cursor = conn.cursor()
-            cursor.execute("SELECT email FROM pending_tasks WHERE id = ?", (task_id,))
+            cursor.execute("SELECT email FROM pending_tasks WHERE id = %s", (task_id,))
             task = cursor.fetchone()
             email = task[0] if task else "Unknown"
             
-            cursor.execute("UPDATE pending_tasks SET status = 'rejected' WHERE id = ?", (task_id,))
-            cursor.execute("UPDATE users SET hold_balance = MAX(0, hold_balance - ?) WHERE user_id = ?", (GMAIL_RATE, target_user_id))
-            cursor.execute("INSERT INTO history (user_id, text) VALUES (?, ?)", (target_user_id, f"Rejected - Gmail ({email})"))
+            cursor.execute("UPDATE pending_tasks SET status = 'rejected' WHERE id = %s", (task_id,))
+            cursor.execute("UPDATE users SET hold_balance = GREATEST(0, hold_balance - %s) WHERE user_id = %s", (GMAIL_RATE, target_user_id))
+            cursor.execute("INSERT INTO history (user_id, text) VALUES (%s, %s)", (target_user_id, f"Rejected - Gmail ({email})"))
             conn.commit()
+            cursor.close()
             conn.close()
             
-            bot.send_message(ADMIN_ID, f"❌ Task for `{email}` rejected with reason sent to user.", parse_mode="Markdown")
+            bot.send_message(ADMIN_ID, f"❌ Task for `{email}` rejected.", parse_mode="Markdown")
             try:
                 bot.send_message(
                     target_user_id,
@@ -471,6 +478,7 @@ def handle_message(message):
             cursor = conn.cursor()
             cursor.execute("SELECT user_id FROM users")
             all_users = cursor.fetchall()
+            cursor.close()
             conn.close()
             
             sent = 0
@@ -487,7 +495,8 @@ def handle_message(message):
         conn = get_db()
         cursor = conn.cursor()
         
-        assigned_emails = [row[0] for row in cursor.execute("SELECT email FROM assigned_gmails").fetchall()]
+        cursor.execute("SELECT email FROM assigned_gmails")
+        assigned_emails = [row[0] for row in cursor.fetchall()]
         
         selected_acc = None
         for acc in gmail_accounts:
@@ -496,12 +505,14 @@ def handle_message(message):
                 break
                 
         if not selected_acc:
+            cursor.close()
             conn.close()
             bot.send_message(user_id, "❌ Sorry, all Gmail accounts have been distributed! Please check back later.")
             return
             
-        cursor.execute("INSERT INTO assigned_gmails (email, user_id, status) VALUES (?, ?, 'assigned')", (selected_acc['email'], user_id))
+        cursor.execute("INSERT INTO assigned_gmails (email, user_id, status) VALUES (%s, %s, 'assigned')", (selected_acc['email'], user_id))
         conn.commit()
+        cursor.close()
         conn.close()
         
         response_text = (
@@ -536,8 +547,9 @@ def handle_message(message):
     elif text == "📝 Balance history":
         conn = get_db()
         cursor = conn.cursor()
-        cursor.execute("SELECT text FROM history WHERE user_id = ? ORDER BY id DESC LIMIT 10", (user_id,))
+        cursor.execute("SELECT text FROM history WHERE user_id = %s ORDER BY id DESC LIMIT 10", (user_id,))
         rows = cursor.fetchall()
+        cursor.close()
         conn.close()
         
         if not rows:
@@ -599,10 +611,11 @@ def callback_listener(call):
     elif call.data == "btn_done":
         conn = get_db()
         cursor = conn.cursor()
-        cursor.execute("SELECT email FROM assigned_gmails WHERE user_id = ? AND status = 'assigned'", (user_id,))
+        cursor.execute("SELECT email FROM assigned_gmails WHERE user_id = %s AND status = 'assigned'", (user_id,))
         assigned = cursor.fetchone()
         
         if not assigned:
+            cursor.close()
             conn.close()
             bot.answer_callback_query(call.id, "No active task found!", show_alert=True)
             return
@@ -611,15 +624,18 @@ def callback_listener(call):
         acc = next((item for item in gmail_accounts if item["email"] == email), None)
         
         if not acc:
+            cursor.close()
             conn.close()
             bot.answer_callback_query(call.id, "Account error!", show_alert=True)
             return
             
-        cursor.execute("UPDATE assigned_gmails SET status = 'submitted' WHERE email = ?", (email,))
-        cursor.execute("UPDATE users SET hold_balance = hold_balance + ? WHERE user_id = ?", (GMAIL_RATE, user_id))
-        cursor.execute("INSERT INTO pending_tasks (user_id, email, password, status) VALUES (?, ?, ?, 'pending')", (user_id, acc['email'], acc['pass']))
-        task_id = cursor.lastrowid
+        cursor.execute("UPDATE assigned_gmails SET status = 'submitted' WHERE email = %s", (email,))
+        cursor.execute("UPDATE users SET hold_balance = hold_balance + %s WHERE user_id = %s", (GMAIL_RATE, user_id))
+        cursor.execute("INSERT INTO pending_tasks (user_id, email, password, status) VALUES (%s, %s, %s, 'pending')", (user_id, acc['email'], acc['pass']))
+        cursor.execute("SELECT currval(pg_get_serial_sequence('pending_tasks','id'))")
+        task_id = cursor.fetchone()[0]
         conn.commit()
+        cursor.close()
         conn.close()
         
         markup = InlineKeyboardMarkup()
@@ -656,10 +672,11 @@ def callback_listener(call):
         
         conn = get_db()
         cursor = conn.cursor()
-        cursor.execute("SELECT email, status FROM pending_tasks WHERE id = ?", (task_id,))
+        cursor.execute("SELECT email, status FROM pending_tasks WHERE id = %s", (task_id,))
         task = cursor.fetchone()
         
         if not task or task[1] != 'pending':
+            cursor.close()
             conn.close()
             bot.answer_callback_query(call.id, "Task already processed!")
             return
@@ -667,10 +684,11 @@ def callback_listener(call):
         email = task[0]
         
         if action == "app":
-            cursor.execute("UPDATE pending_tasks SET status = 'approved' WHERE id = ?", (task_id,))
-            cursor.execute("UPDATE users SET balance = balance + ?, hold_balance = MAX(0, hold_balance - ?), completed_count = completed_count + 1 WHERE user_id = ?", (GMAIL_RATE, GMAIL_RATE, target_user_id))
-            cursor.execute("INSERT INTO history (user_id, text) VALUES (?, ?)", (target_user_id, f"+${GMAIL_RATE:.2f} - Gmail Approved ({email})"))
+            cursor.execute("UPDATE pending_tasks SET status = 'approved' WHERE id = %s", (task_id,))
+            cursor.execute("UPDATE users SET balance = balance + %s, hold_balance = GREATEST(0, hold_balance - %s), completed_count = completed_count + 1 WHERE user_id = %s", (GMAIL_RATE, GMAIL_RATE, target_user_id))
+            cursor.execute("INSERT INTO history (user_id, text) VALUES (%s, %s)", (target_user_id, f"+${GMAIL_RATE:.2f} - Gmail Approved ({email})"))
             conn.commit()
+            cursor.close()
             conn.close()
             
             bot.answer_callback_query(call.id, "Approved successfully!")
@@ -685,6 +703,7 @@ def callback_listener(call):
                 pass
                 
         elif action == "rej":
+            cursor.close()
             conn.close()
             user_states[ADMIN_ID] = f"awaiting_reject_reason_{task_id}_{target_user_id}"
             bot.answer_callback_query(call.id)
@@ -702,6 +721,7 @@ def callback_listener(call):
         cursor = conn.cursor()
         cursor.execute("SELECT id, user_id, email, password FROM pending_tasks WHERE status = 'pending' LIMIT 5")
         rows = cursor.fetchall()
+        cursor.close()
         conn.close()
         
         if not rows:
@@ -721,8 +741,9 @@ def callback_listener(call):
     elif call.data == "btn_cancel":
         conn = get_db()
         cursor = conn.cursor()
-        cursor.execute("DELETE FROM assigned_gmails WHERE user_id = ? AND status = 'assigned'", (user_id,))
+        cursor.execute("DELETE FROM assigned_gmails WHERE user_id = %s AND status = 'assigned'", (user_id,))
         conn.commit()
+        cursor.close()
         conn.close()
         
         bot.answer_callback_query(call.id, "Registration cancelled.")
@@ -744,6 +765,6 @@ def callback_listener(call):
 # Start Flask in a background thread so Render detects an active web port
 if __name__ == "__main__":
     threading.Thread(target=run_flask).start()
-    print("Bot & Flask server are running...")
+    print("Bot & Supabase Database connected successfully. Running...")
     bot.delete_webhook()
     bot.infinity_polling(skip_pending=True)
