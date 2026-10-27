@@ -309,7 +309,7 @@ def handle_message(message):
         conn = get_db()
         cursor = conn.cursor()
         
-        # ফিক্সড লিস্টের পরিবর্তে সরাসরি র্যান্ডম কঠিন জিমেইল জেনারেট করবে
+        # র্যান্ডম কঠিন জিমেইল জেনারেট করবে
         selected_acc = generate_unique_gmail(cursor)
         
         if not selected_acc:
@@ -323,17 +323,18 @@ def handle_message(message):
         cursor.close()
         conn.close()
         
+        # ব্যাকটিক্স (`` ` ``) যুক্ত করা হয়েছে যাতে ইউজাররা ক্লিক করলেই কপি করতে পারে
         response_text = (
             f"Register Gmail account using the specified data and get ${GMAIL_RATE:.2f}\n\n"
-            f"First name: {selected_acc['first']}\n"
+            f"First name: `{selected_acc['first']}`\n"
             f"Last name: {selected_acc['last']}\n"
-            f"Email: {selected_acc['email']}\n"
-            f"Password: {selected_acc['pass']}\n"
+            f"Email: `{selected_acc['email']}`\n"
+            f"Password: `{selected_acc['pass']}`\n"
             f"Year of birth: {selected_acc['year']}\n\n"
             f"🔐 Be sure to use the specified data, otherwise the account will not be paid."
         )
         
-        bot.send_message(user_id, response_text, reply_markup=task_inline_menu())
+        bot.send_message(user_id, response_text, parse_mode="Markdown", reply_markup=task_inline_menu())
         
     elif text == "💰 Balance":
         bal = round(user_data["balance"], 2)
