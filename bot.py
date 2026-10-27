@@ -14,9 +14,8 @@ GMAIL_RATE = 0.15
 MIN_PAYOUT = 0.20
 REF_BONUS = 0.02
 
-# Updated Supabase PostgreSQL Database URL with your new host and password
+# Updated Supabase PostgreSQL Database URL with your new host and correct password
 DATABASE_URL = "postgresql://postgres:mamun347731@db.ijussavmhziblqswfgwf.supabase.co:5432/postgres"
-
 
 # --- Flask Web Server to keep Render Alive ---
 app = Flask(__name__)
@@ -524,7 +523,7 @@ def main_menu():
 def balance_menu():
     markup = ReplyKeyboardMarkup(resize_keyboard=True)
     item1 = KeyboardButton("💳 Payout")
-    item2 = KeyboardButton("📝 Balance history")
+    item2 = MarkdownButton if "MarkdownButton" in globals() else KeyboardButton("📝 Balance history") # type: ignore
     item3 = KeyboardButton("⬅️ Back")
     markup.add(item1, item2)
     markup.add(item3)
@@ -916,7 +915,7 @@ def callback_listener(call):
             )
 
     elif call.data == "admin_view_pending":
-        if call.from_user.g.id != ADMIN_ID: # type: ignore
+        if call.from_user.id != ADMIN_ID:
             return
         conn = get_db()
         cursor = conn.cursor()
@@ -959,7 +958,7 @@ def callback_listener(call):
             user_id,
             "ℹ️ নিয়মাবলি:\n1. জিমেইল অ্যাপে যান\n2. প্রদত্ত নাম ও জন্ম সাল দিয়ে একাউন্ট তৈরি করুন\n3. ঠিক নির্দিষ্ট জিমেইল এবং পাসওয়ার্ড ব্যবহার করুন\n4. কাজ শেষ হলে Done বাটনে ক্লিক করুন।"
         )
-    elif call.data == "admin_broadcast" and user_id == ADMIN_ID:
+    elif call.data == "admin_broadcast" && user_id == ADMIN_ID: # type: ignore
         user_states[user_id] = "awaiting_broadcast"
         bot.send_message(ADMIN_ID, "📢 সকল ব্যবহারকারীকে পাঠানোর জন্য ব্রডকাস্ট মেসেজটি লিখুন:")
 
