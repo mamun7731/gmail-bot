@@ -915,7 +915,7 @@ def callback_listener(call):
             )
 
     elif call.data == "admin_view_pending":
-        if call.from_user.id != ADMIN_ID:
+        if call.from_user.g.id != ADMIN_ID: # type: ignore
             return
         conn = get_db()
         cursor = conn.cursor()
@@ -950,17 +950,17 @@ def callback_listener(call):
         bot.edit_message_text(
             chat_id=user_id,
             message_id=call.message.message_id,
-            text="❌ Registration cancelled."
+            text="❌ রেজিস্ট্রেশন বাতিল করা হয়েছে।"
         )
     elif call.data == "btn_help":
-        bot.answer_callback_query(call.id, "Instructions sent.")
+        bot.answer_callback_query(call.id, "নির্দেশনা পাঠানো হয়েছে।")
         bot.send_message(
             user_id,
-            "ℹ️ Instructions:\n1. Open Gmail app\n2. Create account with provided Name & DOB\n3. Use exact Email & Password\n4. Click Done when finished."
+            "ℹ️ নিয়মাবলি:\n1. জিমেইল অ্যাপে যান\n2. প্রদত্ত নাম ও জন্ম সাল দিয়ে একাউন্ট তৈরি করুন\n3. ঠিক নির্দিষ্ট জিমেইল এবং পাসওয়ার্ড ব্যবহার করুন\n4. কাজ শেষ হলে Done বাটনে ক্লিক করুন।"
         )
     elif call.data == "admin_broadcast" and user_id == ADMIN_ID:
         user_states[user_id] = "awaiting_broadcast"
-        bot.send_message(ADMIN_ID, "📢 Enter the broadcast message you want to send to all users:")
+        bot.send_message(ADMIN_ID, "📢 সকল ব্যবহারকারীকে পাঠানোর জন্য ব্রডকাস্ট মেসেজটি লিখুন:")
 
 # Start Flask in a background thread so Render detects an active web port
 if __name__ == "__main__":
