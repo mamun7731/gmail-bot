@@ -418,7 +418,7 @@ gmail_accounts = [
     {"first": "Gokhan", "last": "❌", "email": "gokhanaydin2311@gmail.com", "pass": "Gokh!Aydi5566", "year": "2000"},
     {"first": "Harun", "last": "❌", "email": "harunsen2312@gmail.com", "pass": "Haru#Sen7788", "year": "2000"},
     {"first": "Ismail", "last": "❌", "email": "ismailkoc2313@gmail.com", "pass": "Isma!Koc9900", "year": "2000"},
-    {"first": "Kadir", "last": "❌", "email": "kadriaksoy2314@gmail.com", "pass": "Kadi#Akso1122", "year": "2000"},
+    {"first": "Kadir", "last": "❌", "email": "kadriaksoy2314@gmail.com", "pass": "Kadi!Akso1122", "year": "2000"},
     {"first": "Levent", "last": "❌", "email": "leventpolat2315@gmail.com", "pass": "Leve!Pola3344", "year": "2000"},
     {"first": "Meltem", "last": "❌", "email": "meltemdogan2316@gmail.com", "pass": "Melt#Doga5566", "year": "2000"},
     {"first": "Nuri", "last": "❌", "email": "nuricelik2317@gmail.com", "pass": "Nuri!Celi7788", "year": "2000"},
