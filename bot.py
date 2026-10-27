@@ -15,7 +15,8 @@ MIN_PAYOUT = 0.20
 REF_BONUS = 0.02
 
 # Updated Supabase PostgreSQL Database URL with your new host and correct password
-DATABASE_URL = "postgresql://postgres:mamun347731@db.ijussavmhziblqswfgwf.supabase.co:5432/postgres"
+DATABASE_URL = "postgresql://postgres.ijussavmhziblqswfgwf:mamun347731@aws-0-ap-southeast-2.pooler.supabase.com:5432/postgres"
+
 
 # --- Flask Web Server to keep Render Alive ---
 app = Flask(__name__)
