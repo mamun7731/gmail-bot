@@ -211,6 +211,12 @@ def handle_message(message):
         user_id = message.chat.id
         text = message.text if message.content_type == 'text' else (message.caption or "")
         
+        if text in ["⬅️ Back", "🚫 Cancel registration"] or "Cancel registration" in text:
+            user_states.pop(user_id, None)
+            user_temp_data.pop(user_id, None)
+            bot.send_message(user_id, "Main Menu:", reply_markup=main_menu())
+            return
+
         if "My accounts" in text or "📋 My accounts" in text:
             user_states.pop(user_id, None)
             user_temp_data.pop(user_id, None)
@@ -262,12 +268,6 @@ def handle_message(message):
                     bot.send_message(user_id, msg)
             else:
                 bot.send_message(user_id, "📁 You have not submitted any accounts yet.", reply_markup=main_menu())
-            return
-
-        if text in ["⬅️ Back", "🚫 Cancel registration"] or "Cancel registration" in text:
-            user_states.pop(user_id, None)
-            user_temp_data.pop(user_id, None)
-            bot.send_message(user_id, "Main Menu:", reply_markup=main_menu())
             return
 
         if user_id in user_states:
