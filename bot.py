@@ -878,5 +878,8 @@ def callback_listener(call):
 if __name__ == "__main__":
     threading.Thread(target=run_flask).start()
     print("Bot & Supabase Database connected successfully. Running...")
-    bot.remove_webhook()
-    bot.infinity_polling(timeout=60, long_polling_timeout=60)
+    try:
+        bot.remove_webhook()
+        bot.infinity_polling(timeout=60, long_polling_timeout=60, skip_pending=True)
+    except Exception as e:
+        print(f"Polling error: {e}")
