@@ -258,6 +258,8 @@ def handle_message(message):
                     if status == 'rejected' and reason:
                         msg += f"\n💬 {reason}"
                     bot.send_message(user_id, msg)
+            else:
+                bot.send_message(user_id, "📁 You have not submitted any accounts yet.", reply_markup=main_menu())
             return
 
         if text in ["⬅️ Back", "🚫 Cancel registration"]:
