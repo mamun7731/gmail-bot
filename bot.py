@@ -48,8 +48,7 @@ def init_db():
                 account_type TEXT DEFAULT 'New Gmail'
             )
         ''')
-        # Force add missing columns if table already existed without them
-        cursor.execute('ALTER TABLE pending_tasks ADD COLUMN IF NOT EXISTS recovery TEXT DEFAULT "None";')
+        cursor.execute('ALTER TABLE pending_tasks ADD COLUMN IF NOT EXISTS recovery TEXT DEFAULT \'None\';')
         cursor.execute('ALTER TABLE pending_tasks ADD COLUMN IF NOT EXISTS date TEXT;')
         cursor.execute('ALTER TABLE pending_tasks ADD COLUMN IF NOT EXISTS reason TEXT DEFAULT NULL;')
         cursor.execute("ALTER TABLE pending_tasks ADD COLUMN IF NOT EXISTS account_type TEXT DEFAULT 'New Gmail';")
@@ -265,7 +264,8 @@ def handle_message(message):
             bot.send_message(user_id, "Main Menu:", reply_markup=main_menu())
             return
 
-        if "account" in text_lower:
+        # Strict check for My accounts so "How to create account" won't trigger it
+        if "my accounts" in text_lower or text == "📋 My accounts":
             user_states.pop(user_id, None)
             user_temp_data.pop(user_id, None)
                 
@@ -602,8 +602,8 @@ def handle_message(message):
             ref_link = f"https://t.me/{bot_info.username}?start={user_id}"
             bot.send_message(user_id, f"👥 **Your Referral Link:**\n{ref_link}\n\n🎁 Invite friends and earn ${REF_BONUS:.2f} per active referral!", parse_mode="Markdown")
             
-        elif "help" in text_lower or "💬" in text:
-            bot.send_message(user_id, "💬 Support contact: @mamun9894")
+        elif "help" in text_lower or "💬" in text or "how to create account" in text_lower:
+            bot.send_message(user_id, "ℹ️ Guidelines:\n1. Guide: Create Gmail using given name and DOB\n2. Submit exact email & password\n3. Tap Done.\n\n💬 Support contact: @mamun9894")
     except Exception as e:
         print(f"handle_message error: {e}")
 
