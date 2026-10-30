@@ -212,7 +212,7 @@ def handle_message(message):
         user_id = message.chat.id
         text = message.text if message.content_type == 'text' else (message.caption or "")
         
-        if "My accounts" in text:
+        if "My accounts" in text or "📋 My accounts" in text:
             user_states.pop(user_id, None)
             user_temp_data.pop(user_id, None)
                 
@@ -265,7 +265,7 @@ def handle_message(message):
                 bot.send_message(user_id, "📁 You have not submitted any accounts yet.", reply_markup=main_menu())
             return
 
-        if text in ["⬅️ Back", "🚫 Cancel registration"]:
+        if text in ["⬅️ Back", "🚫 Cancel registration"] or "Cancel registration" in text:
             user_states.pop(user_id, None)
             user_temp_data.pop(user_id, None)
             bot.send_message(user_id, "Main Menu:", reply_markup=main_menu())
@@ -501,7 +501,7 @@ def handle_message(message):
 
         user_data = get_user_data(user_id)
 
-        if "Register a new Gmail" in text:
+        if "Register a new Gmail" in text or "➕ Register a new Gmail" in text:
             conn = get_db()
             cursor = conn.cursor()
             selected_acc = generate_unique_gmail(cursor)
@@ -534,7 +534,7 @@ def handle_message(message):
             markup.add(InlineKeyboardButton("❓ How to create account", callback_data="btn_help"))
             bot.send_message(user_id, response_text, parse_mode="Markdown", reply_markup=markup)
 
-        elif "Submit my own" in text:
+        elif "Submit my own" in text or "📥 Submit my own" in text:
             user_states[user_id] = "sub_awaiting_type"
             markup = ReplyKeyboardMarkup(resize_keyboard=True, selective=True)
             markup.add(KeyboardButton("⭐ New Gmail"), KeyboardButton("🌟 Old Gmail"))
