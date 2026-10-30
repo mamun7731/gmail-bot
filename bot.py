@@ -790,6 +790,7 @@ def callback_listener(call):
             "ℹ️ নিয়মাবলি:\n1. জিমেইল অ্যাপে যান\n2. প্রদত্ত নাম ও জন্ম সাল দিয়ে একাউন্ট তৈরি করুন\n3. ঠিক নির্দিষ্ট জিমেইল এবং পাসওয়ার্ড ব্যবহার করুন\n4. কাজ শেষ হলে Done বাটনে ক্লিক করুন।"
         )
     elif call.data == "admin_broadcast" and user_id == ADMIN_ID:
+        user_states[user_id] = "await_broadcast" # safety fallback
         user_states[user_id] = "awaiting_broadcast"
         bot.send_message(ADMIN_ID, "📢 সকল ব্যবহারকারীকে পাঠানোর জন্য ব্রডকাস্ট মেসেজটি লিখুন:")
 
@@ -797,5 +798,5 @@ def callback_listener(call):
 if __name__ == "__main__":
     threading.Thread(target=run_flask).start()
     print("Bot & Supabase Database connected successfully. Running...")
-    bot.delete_webhook()
-    bot.infinity_polling(skip_pending=True)
+    bot.remove_webhook()
+    bot.infinity_polling(timeout=60, long_polling_timeout=60)
