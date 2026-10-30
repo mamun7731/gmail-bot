@@ -41,11 +41,15 @@ def init_db():
                 user_id BIGINT,
                 email TEXT,
                 password TEXT,
+                recovery TEXT DEFAULT 'None',
                 status TEXT DEFAULT 'pending',
                 date TEXT,
                 reason TEXT DEFAULT NULL,
                 account_type TEXT DEFAULT 'New Gmail'
             )
+        ''')
+        cursor.execute('''
+            ALTER TABLE pending_tasks ADD COLUMN IF NOT EXISTS recovery TEXT DEFAULT 'None';
         ''')
         cursor.execute('''
             ALTER TABLE pending_tasks ADD COLUMN IF NOT EXISTS reason TEXT DEFAULT NULL;
@@ -215,13 +219,13 @@ def handle_message(message):
             conn = get_db()
             cursor = conn.cursor()
             try:
-                cursor.execute("SELECT email, password, status, date, reason, account_type FROM pending_tasks WHERE user_id = %s ORDER BY id DESC", (user_id,))
+                cursor.execute("SELECT email, password, status, date, reason, account_type, recovery FROM pending_tasks WHERE user_id = %s ORDER BY id DESC", (user_id,))
                 tasks = cursor.fetchall()
             except Exception as e:
                 conn.rollback()
                 cursor.execute("SELECT email, password, status, date, reason FROM pending_tasks WHERE user_id = %s ORDER BY id DESC", (user_id,))
                 rows = cursor.fetchall()
-                tasks = [(r[0], r[1], r[2], r[3], r[4], "New Gmail") for r in rows]
+                tasks = [(r[0], r[1], r[2], r[3], r[4], "New Gmail", "None") for r in rows]
             cursor.close()
             conn.close()
             
@@ -242,8 +246,7 @@ def handle_message(message):
             
             if tasks:
                 for i, t in enumerate(tasks[:15], 1):
-                    email, pwd, status, date_str, reason = t[0], t[1], t[2], t[3], t[4]
-                    acc_type = t[5] if len(t) > 5 and t[5] else "New Gmail"
+                    email, pwd, status, date_str, reason, acc_type = t[0], t[1], t[2], t[3], t[4], t[5]
                     if not date_str:
                         date_str = datetime.now().strftime("%m/%d/%Y")
                     
@@ -256,7 +259,7 @@ def handle_message(message):
                     
                     msg = f"{i}. {icon} {acc_type}\n💰 ${GMAIL_RATE:.2f} | 📅 {date_str} | {status_text}\n📋 {email}:{pwd}"
                     if status == 'rejected' and reason:
-                        msg += f"\n💬 {reason}"
+                        msg += f"\n💬 **Decline Reason:** {reason}"
                     bot.send_message(user_id, msg)
             else:
                 bot.send_message(user_id, "📁 You have not submitted any accounts yet.", reply_markup=main_menu())
@@ -280,6 +283,10 @@ def handle_message(message):
                 reason = message.caption if message.content_type == 'photo' else message.text
                 if not reason:
                     reason = "No reason provided."
+                
+                photo_id = message.photo[-1].file_id if message.content_type == 'photo' else None
+                if photo_id:
+                    reason = f"{reason} [Photo attached]"
                     
                 conn = get_db()
                 cursor = conn.cursor()
@@ -296,8 +303,8 @@ def handle_message(message):
                 
                 bot.send_message(ADMIN_ID, f"❌ Task for `{email}` rejected.", parse_mode="Markdown")
                 try:
-                    if message.content_type == 'photo':
-                        bot.send_photo(target_user_id, photo=message.photo[-1].file_id, caption=f"❌ Sorry, your Gmail account (`{email}`) submission was rejected.\n\n📝 **Reason:** {reason}", parse_mode="Markdown")
+                    if photo_id:
+                        bot.send_photo(target_user_id, photo=photo_id, caption=f"❌ Sorry, your Gmail account (`{email}`) submission was rejected.\n\n📝 **Reason:** {reason}", parse_mode="Markdown")
                     else:
                         bot.send_message(target_user_id, f"❌ Sorry, your Gmail account (`{email}`) submission was rejected.\n\n📝 **Reason:** {reason}", parse_mode="Markdown")
                 except Exception as e:
@@ -345,7 +352,7 @@ def handle_message(message):
             user_data = get_user_data(user_id)
             
             if state == "sub_awaiting_type":
-                acc_type = "Old Gmail" if "old" in text.lower() else "New Gmail"
+                acc_type = "Old Gmail" if "old" in text.lower() or "🌟" in text else "New Gmail"
                 user_temp_data[user_id] = {"account_type": acc_type}
                 user_states[user_id] = "sub_awaiting_email"
                 markup = ReplyKeyboardMarkup(resize_keyboard=True, selective=True)
@@ -385,6 +392,7 @@ def handle_message(message):
                 acc = user_temp_data[user_id]
                 email = acc.get("email", "unknown@gmail.com")
                 password = acc.get("password", "123456")
+                recovery = acc.get("recovery", "None")
                 acc_type = acc.get("account_type", "New Gmail")
                 current_date = datetime.now().strftime("%m/%d/%Y")
                 
@@ -393,7 +401,7 @@ def handle_message(message):
                     
                 conn = get_db()
                 cursor = conn.cursor()
-                cursor.execute("INSERT INTO pending_tasks (user_id, email, password, status, date, account_type) VALUES (%s, %s, %s, 'pending', %s, %s) RETURNING id", (user_id, email, password, current_date, acc_type))
+                cursor.execute("INSERT INTO pending_tasks (user_id, email, password, recovery, status, date, account_type) VALUES (%s, %s, %s, %s, 'pending', %s, %s) RETURNING id", (user_id, email, password, recovery, current_date, acc_type))
                 task_id = cursor.fetchone()[0]
                 cursor.execute("UPDATE users SET hold_balance = hold_balance + %s WHERE user_id = %s", (GMAIL_RATE, user_id))
                 conn.commit()
@@ -418,7 +426,7 @@ def handle_message(message):
                 try:
                     bot.send_message(
                         ADMIN_ID,
-                        f"🔔 **New Pending Task ({acc_type})!**\n\n👤 Name: {name}\n🔗 Username: {username}\n🆔 User ID: `{user_id}`\n💰 Balance: ${u_bal}\n✅ Approved Gmails: {u_completed}\n\n📂 Type: **{acc_type}**\n📧 Email: `{email}`\n🔑 Password: `{password}`",
+                        f"🔔 **New Pending Task ({acc_type})!**\n\n👤 Name: {name}\n🔗 Username: {username}\n🆔 User ID: `{user_id}`\n💰 Balance: ${u_bal}\n✅ Approved Gmails: {u_completed}\n\n📂 Type: **{acc_type}**\n📧 Email: `{email}`\n🔑 Password: `{password}`\n🔄 Recovery: `{recovery}`",
                         parse_mode="Markdown",
                         reply_markup=markup
                     )
@@ -635,7 +643,7 @@ def callback_listener(call):
             
             cursor.execute("UPDATE assigned_gmails SET status = 'submitted' WHERE email = %s", (email,))
             cursor.execute("UPDATE users SET hold_balance = hold_balance + %s WHERE user_id = %s", (GMAIL_RATE, user_id))
-            cursor.execute("INSERT INTO pending_tasks (user_id, email, password, status, date, account_type) VALUES (%s, %s, %s, 'pending', %s, 'New Gmail') RETURNING id", (user_id, email, password, current_date))
+            cursor.execute("INSERT INTO pending_tasks (user_id, email, password, recovery, status, date, account_type) VALUES (%s, %s, %s, 'None', 'pending', %s, 'New Gmail') RETURNING id", (user_id, email, password, current_date))
             task_id = cursor.fetchone()[0]
             conn.commit()
             cursor.close()
@@ -755,7 +763,7 @@ def callback_listener(call):
                 return
             conn = get_db()
             cursor = conn.cursor()
-            cursor.execute("SELECT id, user_id, email, password, account_type FROM pending_tasks WHERE status = 'pending' LIMIT 5")
+            cursor.execute("SELECT id, user_id, email, password, recovery, account_type FROM pending_tasks WHERE status = 'pending' LIMIT 5")
             rows = cursor.fetchall()
             cursor.close()
             conn.close()
@@ -764,7 +772,7 @@ def callback_listener(call):
                 return
             bot.answer_callback_query(call.id, "Showing pending tasks:")
             for r in rows:
-                t_id, u_id, email, pwd, acc_type = r[0], r[1], r[2], r[3], r[4]
+                t_id, u_id, email, pwd, recovery, acc_type = r[0], r[1], r[2], r[3], r[4], r[5]
                 if not acc_type:
                     acc_type = "New Gmail"
                 u_data = get_user_data(u_id)
@@ -780,7 +788,7 @@ def callback_listener(call):
                 
                 bot.send_message(
                     ADMIN_ID,
-                    f"⏳ Pending Task ({acc_type}):\n🆔 User ID: `{u_id}`\n💰 Balance: ${u_bal}\n✅ Approved Gmails: {u_completed}\n📂 Type: **{acc_type}**\n📧 Email: `{email}`\n🔑 Password: `{pwd}`",
+                    f"⏳ Pending Task ({acc_type}):\n🆔 User ID: `{u_id}`\n💰 Balance: ${u_bal}\n✅ Approved Gmails: {u_completed}\n📂 Type: **{acc_type}**\n📧 Email: `{email}`\n🔑 Password: `{pwd}`\n🔄 Recovery: `{recovery}`",
                     parse_mode="Markdown",
                     reply_markup=markup
                 )
