@@ -221,7 +221,7 @@ def handle_message(message):
     user_id = message.chat.id
     text = message.text if message.content_type == 'text' else (message.caption or "")
     
-    # Absolute First Priority: "My accounts"
+    # 1. Handle "My accounts" globally
     if "My accounts" in text:
         if user_id in user_states:
             del user_states[user_id]
@@ -285,7 +285,7 @@ def handle_message(message):
                 bot.send_message(user_id, msg)
         return
 
-    # Second Priority: Back / Cancel
+    # 2. Handle Back / Cancel
     if text in ["⬅️ Back", "🚫 Cancel registration"]:
         if user_id in user_states:
             del user_states[user_id]
@@ -294,71 +294,7 @@ def handle_message(message):
         bot.send_message(user_id, "Main Menu:", reply_markup=main_menu())
         return
 
-    # Third Priority: Check if user is in recovery step and clicked skip
-    if user_id in user_states and user_states[user_id] == "sub_awaiting_recovery":
-        if "skip" in text.lower() or "⏭" in text or "skip recovery" in text.lower():
-            user_temp_data[user_id]["recovery"] = "None"
-            
-            acc = user_temp_data[user_id]
-            email = acc["email"]
-            password = acc["password"]
-            acc_type = acc["account_type"]
-            current_date = datetime.now().strftime("%m/%d/%Y")
-            
-            if user_id in user_states:
-                del user_states[user_id]
-            if user_id in user_temp_data:
-                del user_temp_data[user_id]
-                
-            conn = get_db()
-            cursor = conn.cursor()
-            cursor.execute("INSERT INTO pending_tasks (user_id, email, password, status, date, account_type) VALUES (%s, %s, %s, 'pending', %s, %s) RETURNING id", (user_id, email, password, current_date, acc_type))
-            task_id = cursor.fetchone()[0]
-            cursor.execute("UPDATE users SET hold_balance = hold_balance + %s WHERE user_id = %s", (GMAIL_RATE, user_id))
-            conn.commit()
-            cursor.close()
-            conn.close()
-            
-            user_info = message.from_user
-            name = user_info.first_name or "Unknown"
-            username = f"@{user_info.username}" if user_info.username else "No Username"
-            
-            u_data = get_user_data(user_id)
-            u_bal = round(u_data["balance"], 2)
-            u_completed = u_data["completed_count"]
-
-            markup = InlineKeyboardMarkup()
-            markup.add(
-                InlineKeyboardButton("✅ Approve ($0.15)", callback_data=f"app_{task_id}_{user_id}"),
-                InlineKeyboardButton("💵 Custom Price", callback_data=f"customapp_{task_id}_{user_id}")
-            )
-            markup.add(InlineKeyboardButton("❌ Reject", callback_data=f"rej_{task_id}_{user_id}"))
-            
-            try:
-                bot.send_message(
-                    ADMIN_ID,
-                    f"🔔 **New Pending Task ({acc_type})!**\n\n"
-                    f"👤 Name: {name}\n"
-                    f"🔗 Username: {username}\n"
-                    f"🆔 User ID: `{user_id}`\n"
-                    f"💰 Balance: ${u_bal}\n"
-                    f"✅ Approved Gmails: {u_completed}\n\n"
-                    f"📂 Type: **{acc_type}**\n"
-                    f"📧 Email: `{email}`\n"
-                    f"🔑 Password: `{password}`",
-                    parse_mode="Markdown",
-                    reply_markup=markup
-                )
-            except:
-                pass
-
-            bot.send_message(
-                user_id,
-                f"⏳ Task submitted successfully ({acc_type})!\n\nYour account is currently under **Hold (Pending review)**. Once admin verifies it, reward will be added to your balance.",
-                reply_markup=main_menu()
-            )
-            return
-
+    # 3. Check active state
     if user_id in user_states:
         state = user_states[user_id]
         
@@ -478,7 +414,8 @@ def handle_message(message):
             
         elif state == "sub_awaiting_recovery":
             is_skip = "skip" in text.lower() or "⏭" in text or "skip recovery" in text.lower()
-            user_temp_data[user_id]["recovery"] = "None" if is_skip else text
+            recovery_val = "None" if is_skip else text
+            user_temp_data[user_id]["recovery"] = recovery_val
             
             acc = user_temp_data[user_id]
             email = acc["email"]
@@ -955,7 +892,7 @@ def callback_listener(call):
             user_id,
             "ℹ️ নিয়মাবলি:\n1. জিমেইল অ্যাপে যান\n2. প্রদত্ত নাম ও জন্ম সাল দিয়ে একাউন্ট তৈরি করুন\n3. ঠিক নির্দিষ্ট জিমেইল এবং পাসওয়ার্ড ব্যবহার করুন\n4. কাজ শেষ হলে Done বাটনে ক্লিক করুন।"
         )
-    elif call.data == "admin_broadcast" and user_id == ADMIN_ID:
+    elif call.data == "admin_broadcast" && user_id == ADMIN_ID:
         user_states[user_id] = "awaiting_broadcast"
         bot.send_message(ADMIN_ID, "📢 সকল ব্যবহারকারীকে পাঠানোর জন্য ব্রডকাস্ট মেসেজটি লিখুন:")
 
