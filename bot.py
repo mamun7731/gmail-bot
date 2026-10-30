@@ -807,7 +807,7 @@ def callback_listener(call):
             
         elif call.data == "btn_help":
             bot.answer_callback_query(call.id, "Instructions sent.")
-            bot.send_message(user_id, "ℹ️ Guidelines:\n1. Go to Gmail app\n2. Create an account using the provided name and year of birth\n3. Use the exact assigned email and password\n4. Tap the Done button when finished.")
+            bot.send_message(user_id, "ℹ️ Guidelines:\n1. Guide: Create Gmail using given name and DOB\n2. Submit exact email & password\n3. Tap Done.")
             
         elif call.data == "admin_broadcast" and user_id == ADMIN_ID:
             user_states[user_id] = "awaiting_broadcast"
@@ -815,7 +815,6 @@ def callback_listener(call):
     except Exception as e:
         print(f"callback_listener error: {e}")
 
-# Dummy web server to keep Render happy in Web Service mode
 app = Flask(__name__)
 
 @app.route('/')
@@ -828,13 +827,11 @@ def run_flask():
 
 if __name__ == "__main__":
     try:
-        # Start Flask in a background thread so Render's port check passes
         t = Thread(target=run_flask)
         t.daemon = True
         t.start()
         
-        # Clear existing webhooks and pending updates to prevent conflict errors
-        bot.remove_webhook(drop_pending_updates=True)
+        bot.remove_webhook()
         print("Starting Bot in Polling Mode with Web Server...")
         bot.infinity_polling(timeout=60, long_polling_timeout=60)
     except Exception as e:
