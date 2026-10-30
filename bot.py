@@ -221,7 +221,7 @@ def handle_message(message):
     user_id = message.chat.id
     text = message.text if message.content_type == 'text' else (message.caption or "")
     
-    # Global check for My accounts (Priority 1)
+    # Absolute First Priority: "My accounts"
     if "My accounts" in text:
         if user_id in user_states:
             del user_states[user_id]
@@ -285,7 +285,7 @@ def handle_message(message):
                 bot.send_message(user_id, msg, parse_mode="Markdown")
         return
 
-    # Global check for Back / Cancel
+    # Second Priority: Back / Cancel
     if text in ["⬅️ Back", "🚫 Cancel registration"]:
         if user_id in user_states:
             del user_states[user_id]
@@ -293,6 +293,72 @@ def handle_message(message):
             del user_temp_data[user_id]
         bot.send_message(user_id, "Main Menu:", reply_markup=main_menu())
         return
+
+    # Third Priority: Check if user is in recovery step and clicked skip
+    if user_id in user_states and user_states[user_id] == "sub_awaiting_recovery":
+        if "skip" in text.lower() or "⏭" in text:
+            user_temp_data[user_id]["recovery"] = "None"
+            
+            acc = user_temp_data[user_id]
+            email = acc["email"]
+            password = acc["password"]
+            acc_type = acc["account_type"]
+            current_date = datetime.now().strftime("%m/%d/%Y")
+            
+            if user_id in user_states:
+                del user_states[user_id]
+            if user_id in user_temp_data:
+                del user_temp_data[user_id]
+                
+            conn = get_db()
+            cursor = conn.cursor()
+            cursor.execute("INSERT INTO pending_tasks (user_id, email, password, status, date, account_type) VALUES (%s, %s, %s, 'pending', %s, %s)", (user_id, email, password, current_date, acc_type))
+            cursor.execute("UPDATE users SET hold_balance = hold_balance + %s WHERE user_id = %s", (GMAIL_RATE, user_id))
+            cursor.execute("SELECT currval(pg_get_serial_sequence('pending_tasks','id'))")
+            task_id = cursor.fetchone()[0]
+            conn.commit()
+            cursor.close()
+            conn.close()
+            
+            user_info = message.from_user
+            name = user_info.first_name or "Unknown"
+            username = f"@{user_info.username}" if user_info.username else "No Username"
+            
+            u_data = get_user_data(user_id)
+            u_bal = round(u_data["balance"], 2)
+            u_completed = u_data["completed_count"]
+
+            markup = InlineKeyboardMarkup()
+            markup.add(
+                InlineKeyboardButton("✅ Approve ($0.15)", callback_data=f"app_{task_id}_{user_id}"),
+                InlineKeyboardButton("💵 Custom Price", callback_data=f"customapp_{task_id}_{user_id}")
+            )
+            markup.add(InlineKeyboardButton("❌ Reject", callback_data=f"rej_{task_id}_{user_id}"))
+            
+            try:
+                bot.send_message(
+                    ADMIN_ID,
+                    f"🔔 **New Pending Task ({acc_type})!**\n\n"
+                    f"👤 Name: {name}\n"
+                    f"🔗 Username: {username}\n"
+                    f"🆔 User ID: `{user_id}`\n"
+                    f"💰 Balance: ${u_bal}\n"
+                    f"✅ Approved Gmails: {u_completed}\n\n"
+                    f"📂 Type: **{acc_type}**\n"
+                    f"📧 Email: `{email}`\n"
+                    f"🔑 Password: `{password}`",
+                    parse_mode="Markdown",
+                    reply_markup=markup
+                )
+            except:
+                pass
+
+            bot.send_message(
+                user_id,
+                f"⏳ Task submitted successfully ({acc_type})!\n\nYour account is currently under **Hold (Pending review)**. Once admin verifies it, reward will be added to your balance.",
+                reply_markup=main_menu()
+            )
+            return
 
     if user_id in user_states:
         state = user_states[user_id]
