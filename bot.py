@@ -264,7 +264,6 @@ def handle_message(message):
             bot.send_message(user_id, "Main Menu:", reply_markup=main_menu())
             return
 
-        # Strict check for My accounts so "How to create account" won't trigger it
         if "my accounts" in text_lower or text == "📋 My accounts":
             user_states.pop(user_id, None)
             user_temp_data.pop(user_id, None)
@@ -727,17 +726,32 @@ def callback_listener(call):
                     conn.close()
                     bot.answer_callback_query(call.id, "Only approved tasks can be cancelled!")
                     return
+                
+                # Automatically extract the exact reward amount given to this user for this email from history
+                cursor.execute("SELECT text FROM history WHERE user_id = %s AND text LIKE %s ORDER BY id DESC LIMIT 1", (target_user_id, f"%Gmail Approved ({email})%"))
+                hist_row = cursor.fetchone()
+                deduct_amount = GMAIL_RATE
+                if hist_row:
+                    h_text = hist_row[0]
+                    # Parse amount e.g. "+$0.25 - Gmail Approved..." or "+$0.05..."
+                    try:
+                        if "+$" in h_text:
+                            part_str = h_text.split("+$")[1].split(" - ")[0]
+                            deduct_amount = float(part_str)
+                    except Exception as ex:
+                        print(f"Error parsing reward amount from history: {ex}")
+
                 cursor.execute("UPDATE pending_tasks SET status = 'rejected', reason = 'Approval cancelled by admin' WHERE id = %s", (task_id,))
-                cursor.execute("UPDATE users SET balance = GREATEST(0, balance - %s), completed_count = GREATEST(0, completed_count - 1) WHERE user_id = %s", (GMAIL_RATE, target_user_id))
-                cursor.execute("INSERT INTO history (user_id, text) VALUES (%s, %s)", (target_user_id, f"Approval Cancelled - Gmail ({email})"))
+                cursor.execute("UPDATE users SET balance = GREATEST(0, balance - %s), completed_count = GREATEST(0, completed_count - 1) WHERE user_id = %s", (deduct_amount, target_user_id))
+                cursor.execute("INSERT INTO history (user_id, text) VALUES (%s, %s)", (target_user_id, f"Approval Cancelled - Gmail ({email}) [Deducted ${deduct_amount:.2f}]"))
                 conn.commit()
                 cursor.close()
                 conn.close()
                 
-                bot.answer_callback_query(call.id, "Approval cancelled successfully!")
-                bot.edit_message_text(chat_id=call.message.chat.id, message_id=call.message.message_id, text=f"❌ Approval for `{email}` has been **CANCELLED / REVOKED**.", parse_mode="Markdown")
+                bot.answer_callback_query(call.id, f"Approval cancelled and ${deduct_amount:.2f} deducted!")
+                bot.edit_message_text(chat_id=call.message.chat.id, message_id=call.message.message_id, text=f"❌ Approval for `{email}` has been **CANCELLED / REVOKED** and `${deduct_amount:.2f}` deducted from user balance.", parse_mode="Markdown")
                 try:
-                    bot.send_message(target_user_id, f"⚠️ Notice: Your approved Gmail account ({email}) approval was cancelled by admin.")
+                    bot.send_message(target_user_id, f"⚠️ Notice: Your approved Gmail account ({email}) approval was cancelled by admin. ${deduct_amount:.2f} was deducted from your balance.")
                 except:
                     pass
 
