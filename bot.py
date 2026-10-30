@@ -162,16 +162,6 @@ def balance_menu():
     markup.add(item3)
     return markup
 
-def task_inline_menu():
-    markup = InlineKeyboardMarkup()
-    btn_done = InlineKeyboardButton("✔ Done", callback_data="btn_done")
-    btn_cancel = InlineKeyboardButton("🚫 Cancel registration", callback_data="btn_cancel")
-    btn_help = InlineKeyboardButton("❓ How to create account", callback_data="btn_help")
-    markup.add(btn_done)
-    markup.add(btn_cancel)
-    markup.add(btn_help)
-    return markup
-
 user_states = {}
 user_temp_data = {}
 
@@ -529,21 +519,29 @@ def handle_message(message):
                 bot.send_message(user_id, "❌ Sorry, could not generate a unique Gmail right now. Please try again later.")
                 return
                 
-            cursor.execute("INSERT INTO assigned_gmails (email, user_id, status) VALUES (%s, %s, 'assigned')", (selected_acc['email'], user_id))
+            email = selected_acc['email']
+            cursor.execute("INSERT INTO assigned_gmails (email, user_id, status) VALUES (%s, %s, 'assigned')", (email, user_id))
             conn.commit()
             cursor.close()
             conn.close()
+            
+            # Store active generated email in temp data for instant verification on Done click
+            user_temp_data[user_id] = {"assigned_email": email}
             
             response_text = (
                 f"Register Gmail account using the specified data and get ${GMAIL_RATE:.2f}\n\n"
                 f"First name: `{selected_acc['first']}`\n"
                 f"Last name: {selected_acc['last']}\n"
-                f"Email: `{selected_acc['email']}`\n"
+                f"Email: `{email}`\n"
                 f"Password: `{selected_acc['pass']}`\n"
                 f"Year of birth: {selected_acc['year']}\n\n"
                 f"🔐 Be sure to use the specified data, otherwise the account will not be paid."
             )
-            bot.send_message(user_id, response_text, parse_mode="Markdown", reply_markup=task_inline_menu())
+            markup = InlineKeyboardMarkup()
+            markup.add(InlineKeyboardButton("✔ Done", callback_data=f"btn_done_{user_id}"))
+            markup.add(InlineKeyboardButton("🚫 Cancel registration", callback_data="btn_cancel"))
+            markup.add(InlineKeyboardButton("❓ How to create account", callback_data="btn_help"))
+            bot.send_message(user_id, response_text, parse_mode="Markdown", reply_markup=markup)
 
         elif "Submit my own" in text:
             user_states[user_id] = "sub_awaiting_type"
@@ -593,7 +591,7 @@ def handle_message(message):
 @bot.callback_query_handler(func=lambda call: True)
 def callback_listener(call):
     try:
-        user_id = call.message.chat.id
+        user_id = call.from_user.id
         
         if call.data == "pay_bkash":
             user_states[user_id] = "payout_bkash"
@@ -627,25 +625,32 @@ def callback_listener(call):
             bot.answer_callback_query(call.id)
             bot.send_message(ADMIN_ID, "💵 Please send the **Custom Price / Amount** (e.g. 0.30 or 0.50) to add to user's balance:")
             
-        elif call.data == "btn_done":
+        elif call.data == "btn_done" or call.data.startswith("btn_done_"):
+            # Get email from temp storage or DB
+            email = None
+            if user_id in user_temp_data and "assigned_email" in user_temp_data[user_id]:
+                email = user_temp_data[user_id]["assigned_email"]
+            
             conn = get_db()
             cursor = conn.cursor()
-            cursor.execute("SELECT email FROM assigned_gmails WHERE user_id = %s AND status = 'assigned' ORDER BY email DESC LIMIT 1", (user_id,))
-            assigned = cursor.fetchone()
+            if not email:
+                cursor.execute("SELECT email FROM assigned_gmails WHERE user_id = %s AND status = 'assigned' ORDER BY email DESC LIMIT 1", (user_id,))
+                assigned = cursor.fetchone()
+                if assigned:
+                    email = assigned[0]
             
-            if not assigned:
+            if not email:
                 letters = ''.join(random.choices(string.ascii_letters, k=8))
                 numbers = ''.join(random.choices(string.digits, k=4))
                 email = f"{letters}{numbers}@gmail.com"
-                password = f"{letters[:3].capitalize()}#{numbers}Xk"
-            else:
-                email = assigned[0]
-                prefix = email.split('@')[0]
-                letters = "".join([c for c in prefix if c.isalpha()])
-                numbers = "".join([c for c in prefix if c.isdigit()])
-                password = f"{letters[:3].capitalize()}#{numbers}Xk"
-                
+                cursor.execute("INSERT INTO assigned_gmails (email, user_id, status) VALUES (%s, %s, 'assigned') ON CONFLICT (email) DO NOTHING", (email, user_id))
+            
+            prefix = email.split('@')[0]
+            letters = "".join([c for c in prefix if c.isalpha()])
+            numbers = "".join([c for c in prefix if c.isdigit()])
+            password = f"{letters[:3].capitalize()}#{numbers}Xk"
             current_date = datetime.now().strftime("%m/%d/%Y")
+            
             cursor.execute("UPDATE assigned_gmails SET status = 'submitted' WHERE email = %s", (email,))
             cursor.execute("UPDATE users SET hold_balance = hold_balance + %s WHERE user_id = %s", (GMAIL_RATE, user_id))
             cursor.execute("INSERT INTO pending_tasks (user_id, email, password, status, date, account_type) VALUES (%s, %s, %s, 'pending', %s, 'New Gmail') RETURNING id", (user_id, email, password, current_date))
@@ -653,6 +658,9 @@ def callback_listener(call):
             conn.commit()
             cursor.close()
             conn.close()
+            
+            if user_id in user_temp_data:
+                user_temp_data.pop(user_id, None)
             
             user_info = call.from_user
             name = user_info.first_name or "Unknown"
@@ -675,15 +683,21 @@ def callback_listener(call):
                     parse_mode="Markdown",
                     reply_markup=markup
                 )
-            except:
-                pass
+            except Exception as e:
+                print(f"Admin notify error: {e}")
 
-            bot.answer_callback_query(call.id, "Submitted! Account is under review (Hold).")
-            bot.edit_message_text(
-                chat_id=user_id,
-                message_id=call.message.message_id,
-                text=f"⏳ Task submitted successfully!\n\nYour account is currently under **Hold (Pending review)**. Once admin verifies it, ${GMAIL_RATE:.2f} will be added to your balance within 24 hours."
-            )
+            bot.answer_callback_query(call.id, "Submitted successfully!")
+            try:
+                bot.edit_message_text(
+                    chat_id=user_id,
+                    message_id=call.message.message_id,
+                    text=f"⏳ Task submitted successfully!\n\nYour account is currently under **Hold (Pending review)**. Once admin verifies it, ${GMAIL_RATE:.2f} will be added to your balance within 24 hours."
+                )
+            except Exception as e:
+                bot.send_message(
+                    user_id,
+                    f"⏳ Task submitted successfully!\n\nYour account is currently under **Hold (Pending review)**. Once admin verifies it, ${GMAIL_RATE:.2f} will be added to your balance within 24 hours."
+                )
             
         elif call.data.startswith("app_") or call.data.startswith("rej_") or call.data.startswith("cancelapp_"):
             if call.from_user.id != ADMIN_ID:
