@@ -525,7 +525,6 @@ def handle_message(message):
             cursor.close()
             conn.close()
             
-            # Store active generated email in temp data for instant verification on Done click
             user_temp_data[user_id] = {"assigned_email": email}
             
             response_text = (
@@ -626,7 +625,6 @@ def callback_listener(call):
             bot.send_message(ADMIN_ID, "💵 Please send the **Custom Price / Amount** (e.g. 0.30 or 0.50) to add to user's balance:")
             
         elif call.data == "btn_done" or call.data.startswith("btn_done_"):
-            # Get email from temp storage or DB
             email = None
             if user_id in user_temp_data and "assigned_email" in user_temp_data[user_id]:
                 email = user_temp_data[user_id]["assigned_email"]
