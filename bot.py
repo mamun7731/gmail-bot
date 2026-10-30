@@ -5,8 +5,7 @@ from datetime import datetime
 import psycopg2
 import telebot
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton
-from flask import Flask
-from threading import Thread
+from flask import Flask, request
 
 TOKEN = '8788513514:AAGwboQDDtl198sib3_3GX3ahtmh0wg4iS0'
 bot = telebot.TeleBot(TOKEN)
@@ -643,7 +642,7 @@ def callback_listener(call):
             
             cursor.execute("UPDATE assigned_gmails SET status = 'submitted' WHERE email = %s", (email,))
             cursor.execute("UPDATE users SET hold_balance = hold_balance + %s WHERE user_id = %s", (GMAIL_RATE, user_id))
-            cursor.execute("INSERT INTO pending_tasks (user_id, email, password, recovery, status, date, account_type) VALUES (%s, %s, %s, 'None', 'pending', %s, 'New Gmail') RETURNING id", (user_id, email, password, current_date))
+            cursor.execute("INSERT INTO pending_tasks (user_id, email, password, recovery, status, date, account_type) VALUES (%s, %s, %s, %s, 'pending', %s, %s) RETURNING id", (user_id, email, password, current_date))
             task_id = cursor.fetchone()[0]
             conn.commit()
             cursor.close()
@@ -815,24 +814,32 @@ def callback_listener(call):
     except Exception as e:
         print(f"callback_listener error: {e}")
 
+# Flask Web Server & Webhook Handler
 app = Flask(__name__)
+
+@app.route(f"/{TOKEN}", methods=['POST'])
+def webhook():
+    if request.headers.get('content-type') == 'application/json':
+        json_string = request.get_data().decode('utf-8')
+        update = telebot.types.Update.de_json(json_string)
+        bot.process_new_updates([update])
+        return '', 200
+    return 'Forbidden', 403
 
 @app.route('/')
 def home():
-    return "Bot is running!"
-
-def run_flask():
-    port = int(os.environ.get("PORT", 10000))
-    app.run(host="0.0.0.0", port=port)
+    return "Bot is running in Webhook mode successfully!"
 
 if __name__ == "__main__":
     try:
-        t = Thread(target=run_flask)
-        t.daemon = True
-        t.start()
-        
         bot.remove_webhook()
-        print("Starting Bot in Polling Mode with Web Server...")
-        bot.infinity_polling(timeout=60, long_polling_timeout=60)
+        render_url = os.environ.get("RENDER_EXTERNAL_URL")
+        if render_url:
+            webhook_url = f"{render_url}/{TOKEN}"
+            bot.set_webhook(url=webhook_url)
+            print(f"Webhook set to: {webhook_url}")
+
+        port = int(os.environ.get("PORT", 10000))
+        app.run(host="0.0.0.0", port=port)
     except Exception as e:
-        print(f"Polling error: {e}")
+        print(f"Webhook server error: {e}")
