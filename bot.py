@@ -833,7 +833,8 @@ if __name__ == "__main__":
         t.daemon = True
         t.start()
         
-        bot.remove_webhook()
+        # Clear existing webhooks and pending updates to prevent conflict errors
+        bot.remove_webhook(drop_pending_updates=True)
         print("Starting Bot in Polling Mode with Web Server...")
         bot.infinity_polling(timeout=60, long_polling_timeout=60)
     except Exception as e:
