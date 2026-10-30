@@ -152,6 +152,9 @@ user_temp_data = {}
 def send_welcome(message):
     try:
         user_id = message.chat.id
+        user_states.pop(user_id, None)
+        user_temp_data.pop(user_id, None)
+        
         ref_id = None
         args = message.text.split()
         if len(args) > 1 and args[1].isdigit():
@@ -203,11 +206,10 @@ def handle_message(message):
         user_id = message.chat.id
         text = message.text if message.content_type == 'text' else (message.caption or "")
         
+        # Global priority for "My accounts"
         if "My accounts" in text:
-            if user_id in user_states:
-                del user_states[user_id]
-            if user_id in user_temp_data:
-                del user_temp_data[user_id]
+            user_states.pop(user_id, None)
+            user_temp_data.pop(user_id, None)
                 
             conn = get_db()
             cursor = conn.cursor()
@@ -258,13 +260,12 @@ def handle_message(message):
             return
 
         if text in ["⬅️ Back", "🚫 Cancel registration"]:
-            if user_id in user_states:
-                del user_states[user_id]
-            if user_id in user_temp_data:
-                del user_temp_data[user_id]
+            user_states.pop(user_id, None)
+            user_temp_data.pop(user_id, None)
             bot.send_message(user_id, "Main Menu:", reply_markup=main_menu())
             return
 
+        # Handle user states
         if user_id in user_states:
             state = user_states[user_id]
             
@@ -272,7 +273,7 @@ def handle_message(message):
                 parts = state.split("_")
                 task_id = int(parts[3])
                 target_user_id = int(parts[4])
-                del user_states[user_id]
+                user_states.pop(user_id, None)
                 
                 reason = message.caption if message.content_type == 'photo' else message.text
                 if not reason:
@@ -305,7 +306,7 @@ def handle_message(message):
                 parts = state.split("_")
                 task_id = int(parts[3])
                 target_user_id = int(parts[4])
-                del user_states[user_id]
+                user_states.pop(user_id, None)
                 
                 try:
                     custom_price = float(text.strip())
@@ -385,10 +386,8 @@ def handle_message(message):
                 acc_type = acc.get("account_type", "New Gmail")
                 current_date = datetime.now().strftime("%m/%d/%Y")
                 
-                if user_id in user_states:
-                    del user_states[user_id]
-                if user_id in user_temp_data:
-                    del user_temp_data[user_id]
+                user_states.pop(user_id, None)
+                user_temp_data.pop(user_id, None)
                     
                 conn = get_db()
                 cursor = conn.cursor()
@@ -433,7 +432,7 @@ def handle_message(message):
 
             if state in ["payout_bkash", "payout_nagad", "payout_crypto"]:
                 method = "bKash" if state == "payout_bkash" else ("Nagad" if state == "payout_nagad" else "Crypto (BEP20)")
-                del user_states[user_id]
+                user_states.pop(user_id, None)
                 
                 bal = user_data["balance"]
                 if bal < MIN_PAYOUT:
@@ -460,7 +459,7 @@ def handle_message(message):
                 
             elif state.startswith("awaiting_txid_") and user_id == ADMIN_ID:
                 target_user_id = int(state.split("_")[2])
-                del user_states[user_id]
+                user_states.pop(user_id, None)
                 try:
                     bot.send_message(target_user_id, f"🎉 **Your Payout has been Paid!**\n\n✅ Transaction ID / Proof:\n`{text}`", parse_mode="Markdown")
                     bot.send_message(ADMIN_ID, f"✅ TXID successfully sent to user `{target_user_id}`!", parse_mode="Markdown")
@@ -469,7 +468,7 @@ def handle_message(message):
                 return
                 
             elif state == "awaiting_broadcast" and user_id == ADMIN_ID:
-                del user_states[user_id]
+                user_states.pop(user_id, None)
                 conn = get_db()
                 cursor = conn.cursor()
                 cursor.execute("SELECT user_id FROM users")
@@ -520,7 +519,7 @@ def handle_message(message):
                 f"🔐 Be sure to use the specified data, otherwise the account will not be paid."
             )
             markup = InlineKeyboardMarkup()
-            markup.add(InlineKeyboardButton("✔ Done", callback_data=f"btn_done_{user_id}"))
+            markup.add(InlineKeyboardButton("✔ Done", callback_data="btn_done"))
             markup.add(InlineKeyboardButton("🚫 Cancel registration", callback_data="btn_cancel"))
             markup.add(InlineKeyboardButton("❓ How to create account", callback_data="btn_help"))
             bot.send_message(user_id, response_text, parse_mode="Markdown", reply_markup=markup)
@@ -640,8 +639,8 @@ def callback_listener(call):
             cursor.close()
             conn.close()
             
-            if user_id in user_temp_data:
-                user_temp_data.pop(user_id, None)
+            user_temp_data.pop(user_id, None)
+            user_states.pop(user_id, None)
             
             user_info = call.from_user
             name = user_info.first_name or "Unknown"
@@ -791,6 +790,8 @@ def callback_listener(call):
             conn.commit()
             cursor.close()
             conn.close()
+            user_states.pop(user_id, None)
+            user_temp_data.pop(user_id, None)
             bot.answer_callback_query(call.id, "Registration cancelled.")
             bot.edit_message_text(chat_id=user_id, message_id=call.message.message_id, text="❌ Registration has been cancelled.")
             
