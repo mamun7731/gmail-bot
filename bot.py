@@ -2,6 +2,7 @@ import os
 import threading
 import random
 import string
+from datetime import datetime
 import psycopg2
 from flask import Flask
 import telebot
@@ -51,7 +52,9 @@ def init_db():
             user_id BIGINT,
             email TEXT,
             password TEXT,
-            status TEXT DEFAULT 'pending'
+            status TEXT DEFAULT 'pending',
+            date TEXT,
+            reason TEXT DEFAULT NULL
         )
     ''')
     cursor.execute('''
@@ -98,13 +101,12 @@ def get_user_data(user_id, referred_by=None):
     conn.close()
     return {"balance": row[0], "hold_balance": row[1], "completed_count": row[2]}
 
-# --- Dynamic Random Difficult Gmail Generator (যেমন: Vsksvhwvj628@gmail.com) ---
+# --- Dynamic Random Difficult Gmail Generator ---
 def generate_unique_gmail(cursor):
     cursor.execute("SELECT email FROM assigned_gmails")
     assigned_emails = {row[0] for row in cursor.fetchall()}
     
     for _ in range(100):
-        # রেন্ডম জটিল অক্ষর এবং সংখ্যা কম্বিনেশন তৈরি
         letters = ''.join(random.choices(string.ascii_letters, k=random.randint(6, 9)))
         numbers = ''.join(random.choices(string.digits, k=random.randint(3, 4)))
         username = f"{letters}{numbers}"
@@ -124,10 +126,10 @@ def generate_unique_gmail(cursor):
 def main_menu():
     markup = ReplyKeyboardMarkup(resize_keyboard=True)
     item1 = KeyboardButton("➕ Register a new Gmail")
-    item2 = KeyboardButton("📋 My accounts")
-    item3 = KeyboardButton("💰 Balance")
-    item4 = KeyboardButton("👥 My referrals")
-    item5 = KeyboardButton("⚙️ Settings")
+    item2 = KeyboardButton("📥 Submit my own")
+    item3 = KeyboardButton("📋 My accounts")
+    item4 = KeyboardButton("💰 Balance")
+    item5 = KeyboardButton("👥 My referrals")
     item6 = KeyboardButton("💬 Help")
     markup.add(item1, item2)
     markup.add(item3, item4)
@@ -154,6 +156,7 @@ def task_inline_menu():
     return markup
 
 user_states = {}
+user_temp_data = {}
 
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
@@ -199,14 +202,140 @@ def admin_panel(message):
         reply_markup=markup
     )
 
-@bot.message_handler(content_types=['text'])
+@bot.message_handler(content_types=['text', 'photo'])
 def handle_message(message):
     user_id = message.chat.id
-    text = message.text
-    user_data = get_user_data(user_id)
     
     if user_id in user_states:
         state = user_states[user_id]
+        
+        # Admin Rejection Reason Handler (Text or Photo with caption)
+        if state.startswith("awaiting_reject_reason_") and user_id == ADMIN_ID:
+            parts = state.split("_")
+            task_id = int(parts[3])
+            target_user_id = int(parts[4])
+            del user_states[user_id]
+            
+            reason = message.caption if message.content_type == 'photo' else message.text
+            if not reason:
+                reason = "No reason provided."
+                
+            conn = get_db()
+            cursor = conn.cursor()
+            cursor.execute("SELECT email FROM pending_tasks WHERE id = %s", (task_id,))
+            task = cursor.fetchone()
+            email = task[0] if task else "Unknown"
+            
+            cursor.execute("UPDATE pending_tasks SET status = 'rejected', reason = %s WHERE id = %s", (reason, task_id))
+            cursor.execute("UPDATE users SET hold_balance = GREATEST(0, hold_balance - %s) WHERE user_id = %s", (GMAIL_RATE, target_user_id))
+            cursor.execute("INSERT INTO history (user_id, text) VALUES (%s, %s)", (target_user_id, f"Rejected - Gmail ({email})"))
+            conn.commit()
+            cursor.close()
+            conn.close()
+            
+            bot.send_message(ADMIN_ID, f"❌ Task for `{email}` rejected.", parse_mode="Markdown")
+            
+            try:
+                if message.content_type == 'photo':
+                    photo_id = message.photo[-1].file_id
+                    bot.send_photo(
+                        target_user_id,
+                        photo=photo_id,
+                        caption=f"❌ Sorry, your Gmail account (`{email}`) submission was rejected.\n\n📝 **Reason:** {reason}",
+                        parse_mode="Markdown"
+                    )
+                else:
+                    bot.send_message(
+                        target_user_id,
+                        f"❌ Sorry, your Gmail account (`{email}`) submission was rejected.\n\n📝 **Reason:** {reason}",
+                        parse_mode="Markdown"
+                    )
+            except Exception as e:
+                bot.send_message(ADMIN_ID, f"⚠️ Failed to send message to user: {e}")
+            return
+
+        text = message.text if message.content_type == 'text' else ""
+        user_data = get_user_data(user_id)
+        
+        # --- "Submit My Own" Multi-step Flow (Without 2FA) ---
+        if state == "sub_awaiting_email":
+            user_temp_data[user_id] = {"email": text}
+            user_states[user_id] = "sub_awaiting_password"
+            markup = ReplyKeyboardMarkup(resize_keyboard=True, selective=True)
+            markup.add(KeyboardButton("🚫 Cancel registration"))
+            bot.send_message(user_id, "🔐 Please enter your password:", reply_markup=markup)
+            return
+            
+        elif state == "sub_awaiting_password":
+            user_temp_data[user_id]["password"] = text
+            user_states[user_id] = "sub_awaiting_recovery"
+            markup = ReplyKeyboardMarkup(resize_keyboard=True, selective=True)
+            markup.add(KeyboardButton("⏭ Skip recovery email"))
+            markup.add(KeyboardButton("🚫 Cancel registration"))
+            bot.send_message(user_id, "📧 Please enter your recovery email address, or tap **Skip** — it is optional:", reply_markup=markup)
+            return
+            
+        elif state == "sub_awaiting_recovery":
+            user_temp_data[user_id]["recovery"] = text if "Skip" not in text else "None"
+            
+            acc = user_temp_data[user_id]
+            email = acc["email"]
+            password = acc["password"]
+            current_date = datetime.now().strftime("%m/%d/%Y")
+            
+            if user_id in user_states:
+                del user_states[user_id]
+            if user_id in user_temp_data:
+                del user_temp_data[user_id]
+                
+            conn = get_db()
+            cursor = conn.cursor()
+            cursor.execute("INSERT INTO pending_tasks (user_id, email, password, status, date) VALUES (%s, %s, %s, 'pending', %s)", (user_id, email, password, current_date))
+            cursor.execute("UPDATE users SET hold_balance = hold_balance + %s WHERE user_id = %s", (GMAIL_RATE, user_id))
+            cursor.execute("SELECT currval(pg_get_serial_sequence('pending_tasks','id'))")
+            task_id = cursor.fetchone()[0]
+            conn.commit()
+            cursor.close()
+            conn.close()
+            
+            user_info = message.from_user
+            name = user_info.first_name or "Unknown"
+            username = f"@{user_info.username}" if user_info.username else "No Username"
+            
+            u_data = get_user_data(user_id)
+            u_bal = round(u_data["balance"], 2)
+            u_completed = u_data["completed_count"]
+
+            markup = InlineKeyboardMarkup()
+            markup.add(
+                InlineKeyboardButton("✅ Approve", callback_data=f"app_{task_id}_{user_id}"),
+                InlineKeyboardButton("❌ Reject", callback_data=f"rej_{task_id}_{user_id}")
+            )
+            try:
+                bot.send_message(
+                    ADMIN_ID,
+                    f"🔔 **New Pending Task Check (Submit Own)!**\n\n"
+                    f"👤 Name: {name}\n"
+                    f"🔗 Username: {username}\n"
+                    f"🆔 User ID: `{user_id}`\n"
+                    f"💰 Balance: ${u_bal}\n"
+                    f"✅ Approved Gmails: {u_completed}\n\n"
+                    f"📧 Email: `{email}`\n"
+                    f"🔑 Password: `{password}`\n"
+                    f"🎁 Reward on approval: ${GMAIL_RATE:.2f}",
+                    parse_mode="Markdown",
+                    reply_markup=markup
+                )
+            except:
+                pass
+
+            bot.send_message(
+                user_id,
+                f"⏳ Task submitted successfully!\n\nYour account is currently under **Hold (Pending review)**. Once admin verifies it, ${GMAIL_RATE:.2f} will be added to your balance.",
+                reply_markup=main_menu()
+            )
+            return
+
         if state in ["payout_bkash", "payout_nagad", "payout_crypto"]:
             method = "bKash" if state == "payout_bkash" else ("Nagad" if state == "payout_nagad" else "Crypto (BEP20)")
             del user_states[user_id]
@@ -255,37 +384,6 @@ def handle_message(message):
                 bot.send_message(ADMIN_ID, f"❌ Failed to send message to user: {e}")
             return
             
-        elif state.startswith("awaiting_reject_reason_") and user_id == ADMIN_ID:
-            parts = state.split("_")
-            task_id = int(parts[3])
-            target_user_id = int(parts[4])
-            del user_states[user_id]
-            
-            reason = text
-            conn = get_db()
-            cursor = conn.cursor()
-            cursor.execute("SELECT email FROM pending_tasks WHERE id = %s", (task_id,))
-            task = cursor.fetchone()
-            email = task[0] if task else "Unknown"
-            
-            cursor.execute("UPDATE pending_tasks SET status = 'rejected' WHERE id = %s", (task_id,))
-            cursor.execute("UPDATE users SET hold_balance = GREATEST(0, hold_balance - %s) WHERE user_id = %s", (GMAIL_RATE, target_user_id))
-            cursor.execute("INSERT INTO history (user_id, text) VALUES (%s, %s)", (target_user_id, f"Rejected - Gmail ({email})"))
-            conn.commit()
-            cursor.close()
-            conn.close()
-            
-            bot.send_message(ADMIN_ID, f"❌ Task for `{email}` rejected.", parse_mode="Markdown")
-            try:
-                bot.send_message(
-                    target_user_id,
-                    f"❌ Sorry, your Gmail account (`{email}`) submission was rejected.\n\n📝 **Reason:** {reason}",
-                    parse_mode="Markdown"
-                )
-            except:
-                pass
-            return
-            
         elif state == "awaiting_broadcast" and user_id == ADMIN_ID:
             del user_states[user_id]
             conn = get_db()
@@ -305,11 +403,16 @@ def handle_message(message):
             bot.send_message(ADMIN_ID, f"✅ Broadcast sent to {sent} users!")
             return
 
+    if message.content_type != 'text':
+        return
+
+    text = message.text
+    user_data = get_user_data(user_id)
+
     if "Register a new Gmail" in text:
         conn = get_db()
         cursor = conn.cursor()
         
-        # র্যান্ডম কঠিন জিমেইল জেনারেট করবে
         selected_acc = generate_unique_gmail(cursor)
         
         if not selected_acc:
@@ -323,7 +426,6 @@ def handle_message(message):
         cursor.close()
         conn.close()
         
-        # ব্যাকটিক্স (`` ` ``) যুক্ত করা হয়েছে যাতে ইউজাররা ক্লিক করলেই কপি করতে পারে
         response_text = (
             f"Register Gmail account using the specified data and get ${GMAIL_RATE:.2f}\n\n"
             f"First name: `{selected_acc['first']}`\n"
@@ -335,6 +437,12 @@ def handle_message(message):
         )
         
         bot.send_message(user_id, response_text, parse_mode="Markdown", reply_markup=task_inline_menu())
+
+    elif "Submit my own" in text:
+        user_states[user_id] = "sub_awaiting_email"
+        markup = ReplyKeyboardMarkup(resize_keyboard=True, selective=True)
+        markup.add(KeyboardButton("🚫 Cancel registration"))
+        bot.send_message(user_id, "📬 Please enter your Gmail email address:", reply_markup=markup)
         
     elif text == "💰 Balance":
         bal = round(user_data["balance"], 2)
@@ -367,7 +475,11 @@ def handle_message(message):
             history_text = "📝 Balance History:\n\n" + "\n".join([r[0] for r in rows])
             bot.send_message(user_id, history_text)
             
-    elif text == "⬅️ Back":
+    elif text == "⬅️ Back" or text == "🚫 Cancel registration":
+        if user_id in user_states:
+            del user_states[user_id]
+        if user_id in user_temp_data:
+            del user_temp_data[user_id]
         bot.send_message(user_id, "Main Menu:", reply_markup=main_menu())
         
     elif text == "👥 My referrals":
@@ -376,8 +488,53 @@ def handle_message(message):
         bot.send_message(user_id, f"👥 **Your Referral Link:**\n{ref_link}\n\n🎁 Invite friends and earn ${REF_BONUS:.2f} per active referral!", parse_mode="Markdown")
         
     elif text == "📋 My accounts":
-        completed = user_data["completed_count"]
-        bot.send_message(user_id, f"📋 Total submitted accounts: {completed}")
+        conn = get_db()
+        cursor = conn.cursor()
+        cursor.execute("SELECT email, password, status, date, reason FROM pending_tasks WHERE user_id = %s ORDER BY id DESC", (user_id,))
+        tasks = cursor.fetchall()
+        cursor.close()
+        conn.close()
+        
+        total_count = len(tasks)
+        paid_count = sum(1 for t in tasks if t[2] == 'approved')
+        pending_count = sum(1 for t in tasks if t[2] == 'pending')
+        declined_count = sum(1 for t in tasks if t[2] == 'rejected')
+        
+        summary_text = (
+            f"📁 **Your submitted accounts ({total_count}):**\n\n"
+            f"📊 Summary:\n"
+            f"✅ Paid: {paid_count}\n"
+            f"⏳ Pending: {pending_count}\n"
+            f"❌ Declined: {declined_count}\n"
+            f"⚠️ Failed: 0\n"
+        )
+        bot.send_message(user_id, summary_text, parse_mode="Markdown")
+        
+        if tasks:
+            for i, t in enumerate(tasks[:15], 1):
+                email, pwd, status, date_str, reason = t[0], t[1], t[2], t[3], t[4]
+                if not date_str:
+                    date_str = datetime.now().strftime("%m/%d/%Y")
+                
+                if status == 'approved':
+                    icon = "✅"
+                    status_text = "paid"
+                elif status == 'pending':
+                    icon = "⏳"
+                    status_text = "pending"
+                else:
+                    icon = "❌"
+                    status_text = "declined"
+                
+                msg = (
+                    f"{i}. {icon} Create account on GOOGLE\n"
+                    f"💰 ${GMAIL_RATE:.2f} | 📅 {date_str} | {status_text}\n"
+                    f"📋 `{email}:{pwd}`"
+                )
+                if status == 'rejected' and reason:
+                    msg += f"\n💬 {reason}"
+                
+                bot.send_message(user_id, msg, parse_mode="Markdown")
         
     elif text == "⚙️ Settings":
         bot.send_message(user_id, "⚙️ Settings option coming soon.")
@@ -430,21 +587,29 @@ def callback_listener(call):
             return
             
         email = assigned[0]
-        # অ্যাসাইন করা ইমেল থেকে অটোমেটিক পাসওয়ার্ড রিক্রিয়েট করা
         prefix = email.split('@')[0]
         letters = "".join([c for c in prefix if c.isalpha()])
         numbers = "".join([c for c in prefix if c.isdigit()])
         password = f"{letters[:3].capitalize()}#{numbers}Xk"
+        current_date = datetime.now().strftime("%m/%d/%Y")
         
         cursor.execute("UPDATE assigned_gmails SET status = 'submitted' WHERE email = %s", (email,))
         cursor.execute("UPDATE users SET hold_balance = hold_balance + %s WHERE user_id = %s", (GMAIL_RATE, user_id))
-        cursor.execute("INSERT INTO pending_tasks (user_id, email, password, status) VALUES (%s, %s, %s, 'pending')", (user_id, email, password))
+        cursor.execute("INSERT INTO pending_tasks (user_id, email, password, status, date) VALUES (%s, %s, %s, 'pending', %s)", (user_id, email, password, current_date))
         cursor.execute("SELECT currval(pg_get_serial_sequence('pending_tasks','id'))")
         task_id = cursor.fetchone()[0]
         conn.commit()
         cursor.close()
         conn.close()
         
+        user_info = call.from_user
+        name = user_info.first_name or "Unknown"
+        username = f"@{user_info.username}" if user_info.username else "No Username"
+        
+        u_data = get_user_data(user_id)
+        u_bal = round(u_data["balance"], 2)
+        u_completed = u_data["completed_count"]
+
         markup = InlineKeyboardMarkup()
         markup.add(
             InlineKeyboardButton("✅ Approve", callback_data=f"app_{task_id}_{user_id}"),
@@ -453,7 +618,15 @@ def callback_listener(call):
         try:
             bot.send_message(
                 ADMIN_ID,
-                f"🔔 **New Pending Task Check!**\n\nUser ID: `{user_id}`\nEmail: `{email}`\nPassword: `{password}`\nReward on approval: ${GMAIL_RATE:.2f}",
+                f"🔔 **New Pending Task Check!**\n\n"
+                f"👤 Name: {name}\n"
+                f"🔗 Username: {username}\n"
+                f"🆔 User ID: `{user_id}`\n"
+                f"💰 Balance: ${u_bal}\n"
+                f"✅ Approved Gmails: {u_completed}\n\n"
+                f"📧 Email: `{email}`\n"
+                f"🔑 Password: `{password}`\n"
+                f"🎁 Reward on approval: ${GMAIL_RATE:.2f}",
                 parse_mode="Markdown",
                 reply_markup=markup
             )
@@ -467,7 +640,7 @@ def callback_listener(call):
             text=f"⏳ Task submitted successfully!\n\nYour account is currently under **Hold (Pending review)**. Once admin verifies it, ${GMAIL_RATE:.2f} will be added to your balance within 24 hours."
         )
         
-    elif call.data.startswith("app_") or call.data.startswith("rej_"):
+    elif call.data.startswith("app_") or call.data.startswith("rej_") or call.data.startswith("cancelapp_"):
         if call.from_user.id != ADMIN_ID:
             bot.answer_callback_query(call.id, "You are not authorized!", show_alert=True)
             return
@@ -482,15 +655,22 @@ def callback_listener(call):
         cursor.execute("SELECT email, status FROM pending_tasks WHERE id = %s", (task_id,))
         task = cursor.fetchone()
         
-        if not task or task[1] != 'pending':
+        if not task:
             cursor.close()
             conn.close()
-            bot.answer_callback_query(call.id, "Task already processed!")
+            bot.answer_callback_query(call.id, "Task not found!")
             return
             
         email = task[0]
+        current_status = task[1]
         
         if action == "app":
+            if current_status != 'pending':
+                cursor.close()
+                conn.close()
+                bot.answer_callback_query(call.id, "Task already processed!")
+                return
+                
             cursor.execute("UPDATE pending_tasks SET status = 'approved' WHERE id = %s", (task_id,))
             cursor.execute("UPDATE users SET balance = balance + %s, hold_balance = GREATEST(0, hold_balance - %s), completed_count = completed_count + 1 WHERE user_id = %s", (GMAIL_RATE, GMAIL_RATE, target_user_id))
             cursor.execute("INSERT INTO history (user_id, text) VALUES (%s, %s)", (target_user_id, f"+${GMAIL_RATE:.2f} - Gmail Approved ({email})"))
@@ -498,17 +678,47 @@ def callback_listener(call):
             cursor.close()
             conn.close()
             
+            markup = InlineKeyboardMarkup()
+            markup.add(InlineKeyboardButton("❌ Cancel Approval (Revoke)", callback_data=f"cancelapp_{task_id}_{target_user_id}"))
+            
             bot.answer_callback_query(call.id, "Approved successfully!")
             bot.edit_message_text(
                 chat_id=call.message.chat.id,
                 message_id=call.message.message_id,
-                text=f"✅ Task for `{email}` has been **APPROVED**."
+                text=f"✅ Task for `{email}` has been **APPROVED**.",
+                reply_markup=markup
             )
             try:
                 bot.send_message(target_user_id, f"🎉 Good news! Your Gmail account ({email}) has been approved. +${GMAIL_RATE:.2f} added to your balance!")
             except:
                 pass
                 
+        elif action == "cancelapp":
+            if current_status != 'approved':
+                cursor.close()
+                conn.close()
+                bot.answer_callback_query(call.id, "Only approved tasks can be cancelled!")
+                return
+                
+            cursor.execute("UPDATE pending_tasks SET status = 'rejected', reason = 'Approval cancelled by admin' WHERE id = %s", (task_id,))
+            cursor.execute("UPDATE users SET balance = GREATEST(0, balance - %s), completed_count = GREATEST(0, completed_count - 1) WHERE user_id = %s", (GMAIL_RATE, target_user_id))
+            cursor.execute("INSERT INTO history (user_id, text) VALUES (%s, %s)", (target_user_id, f"Approval Cancelled - Gmail ({email})"))
+            conn.commit()
+            cursor.close()
+            conn.close()
+            
+            bot.answer_callback_query(call.id, "Approval cancelled successfully!")
+            bot.edit_message_text(
+                chat_id=call.message.chat.id,
+                message_id=call.message.message_id,
+                text=f"❌ Approval for `{email}` has been **CANCELLED / REVOKED**.",
+                parse_mode="Markdown"
+            )
+            try:
+                bot.send_message(target_user_id, f"⚠️ Notice: Your approved Gmail account ({email}) approval was cancelled by admin.")
+            except:
+                pass
+
         elif action == "rej":
             cursor.close()
             conn.close()
@@ -517,7 +727,7 @@ def callback_listener(call):
             bot.edit_message_text(
                 chat_id=ADMIN_ID,
                 message_id=call.message.message_id,
-                text=call.message.text + f"\n\n👉 **Status:** Rejected clicked! Now send the **Reject Reason / Message** in chat for user `{target_user_id}`:",
+                text=call.message.text + f"\n\n👉 **Status:** Rejected clicked! Now send the **Reject Reason (Text or Photo with caption)** in chat for user `{target_user_id}`:",
                 parse_mode="Markdown"
             )
 
@@ -538,12 +748,26 @@ def callback_listener(call):
         bot.answer_callback_query(call.id, "Showing pending tasks:")
         for r in rows:
             t_id, u_id, email, pwd = r[0], r[1], r[2], r[3]
+            u_data = get_user_data(u_id)
+            u_bal = round(u_data["balance"], 2)
+            u_completed = u_data["completed_count"]
+            
             markup = InlineKeyboardMarkup()
             markup.add(
                 InlineKeyboardButton("✅ Approve", callback_data=f"app_{t_id}_{u_id}"),
                 InlineKeyboardButton("❌ Reject", callback_data=f"rej_{t_id}_{u_id}")
             )
-            bot.send_message(ADMIN_ID, f"⏳ Pending Task:\nUser ID: `{u_id}`\nEmail: `{email}`\nPassword: `{pwd}`", parse_mode="Markdown", reply_markup=markup)
+            bot.send_message(
+                ADMIN_ID,
+                f"⏳ Pending Task:\n"
+                f"🆔 User ID: `{u_id}`\n"
+                f"💰 Balance: ${u_bal}\n"
+                f"✅ Approved Gmails: {u_completed}\n"
+                f"📧 Email: `{email}`\n"
+                f"🔑 Password: `{pwd}`",
+                parse_mode="Markdown",
+                reply_markup=markup
+            )
 
     elif call.data == "btn_cancel":
         conn = get_db()
