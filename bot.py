@@ -247,14 +247,14 @@ def handle_message(message):
         declined_count = sum(1 for t in tasks if t[2] == 'rejected')
         
         summary_text = (
-            f"📁 **Your submitted accounts ({total_count}):**\n\n"
+            f"📁 Your submitted accounts ({total_count}):\n\n"
             f"📊 Summary:\n"
             f"✅ Paid: {paid_count}\n"
             f"⏳ Pending: {pending_count}\n"
             f"❌ Declined: {declined_count}\n"
             f"⚠️ Failed: 0\n"
         )
-        bot.send_message(user_id, summary_text, reply_markup=main_menu(), parse_mode="Markdown")
+        bot.send_message(user_id, summary_text, reply_markup=main_menu())
         
         if tasks:
             for i, t in enumerate(tasks[:15], 1):
@@ -277,12 +277,12 @@ def handle_message(message):
                 msg = (
                     f"{i}. {icon} {acc_type}\n"
                     f"💰 ${GMAIL_RATE:.2f} | 📅 {date_str} | {status_text}\n"
-                    f"📋 `{email}:{pwd}`"
+                    f"📋 {email}:{pwd}"
                 )
                 if status == 'rejected' and reason:
                     msg += f"\n💬 {reason}"
                 
-                bot.send_message(user_id, msg, parse_mode="Markdown")
+                bot.send_message(user_id, msg)
         return
 
     # Second Priority: Back / Cancel
@@ -312,10 +312,9 @@ def handle_message(message):
                 
             conn = get_db()
             cursor = conn.cursor()
-            cursor.execute("INSERT INTO pending_tasks (user_id, email, password, status, date, account_type) VALUES (%s, %s, %s, 'pending', %s, %s)", (user_id, email, password, current_date, acc_type))
-            cursor.execute("UPDATE users SET hold_balance = hold_balance + %s WHERE user_id = %s", (GMAIL_RATE, user_id))
-            cursor.execute("SELECT currval(pg_get_serial_sequence('pending_tasks','id'))")
+            cursor.execute("INSERT INTO pending_tasks (user_id, email, password, status, date, account_type) VALUES (%s, %s, %s, 'pending', %s, %s) RETURNING id", (user_id, email, password, current_date, acc_type))
             task_id = cursor.fetchone()[0]
+            cursor.execute("UPDATE users SET hold_balance = hold_balance + %s WHERE user_id = %s", (GMAIL_RATE, user_id))
             conn.commit()
             cursor.close()
             conn.close()
@@ -494,10 +493,9 @@ def handle_message(message):
                 
             conn = get_db()
             cursor = conn.cursor()
-            cursor.execute("INSERT INTO pending_tasks (user_id, email, password, status, date, account_type) VALUES (%s, %s, %s, 'pending', %s, %s)", (user_id, email, password, current_date, acc_type))
-            cursor.execute("UPDATE users SET hold_balance = hold_balance + %s WHERE user_id = %s", (GMAIL_RATE, user_id))
-            cursor.execute("SELECT currval(pg_get_serial_sequence('pending_tasks','id'))")
+            cursor.execute("INSERT INTO pending_tasks (user_id, email, password, status, date, account_type) VALUES (%s, %s, %s, 'pending', %s, %s) RETURNING id", (user_id, email, password, current_date, acc_type))
             task_id = cursor.fetchone()[0]
+            cursor.execute("UPDATE users SET hold_balance = hold_balance + %s WHERE user_id = %s", (GMAIL_RATE, user_id))
             conn.commit()
             cursor.close()
             conn.close()
@@ -758,8 +756,7 @@ def callback_listener(call):
         
         cursor.execute("UPDATE assigned_gmails SET status = 'submitted' WHERE email = %s", (email,))
         cursor.execute("UPDATE users SET hold_balance = hold_balance + %s WHERE user_id = %s", (GMAIL_RATE, user_id))
-        cursor.execute("INSERT INTO pending_tasks (user_id, email, password, status, date, account_type) VALUES (%s, %s, %s, 'pending', %s, 'New Gmail')", (user_id, email, password, current_date))
-        cursor.execute("SELECT currval(pg_get_serial_sequence('pending_tasks','id'))")
+        cursor.execute("INSERT INTO pending_tasks (user_id, email, password, status, date, account_type) VALUES (%s, %s, %s, 'pending', %s, 'New Gmail') RETURNING id", (user_id, email, password, current_date))
         task_id = cursor.fetchone()[0]
         conn.commit()
         cursor.close()
