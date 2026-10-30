@@ -786,7 +786,7 @@ def callback_listener(call):
 
         elif call.data == "btn_cancel":
             conn = get_db()
-            cursor = ncol_cursor = conn.cursor()
+            cursor = conn.cursor()
             cursor.execute("DELETE FROM assigned_gmails WHERE user_id = %s AND status = 'assigned'", (user_id,))
             conn.commit()
             cursor.close()
@@ -798,7 +798,7 @@ def callback_listener(call):
             bot.answer_callback_query(call.id, "Instructions sent.")
             bot.send_message(user_id, "ℹ️ Guidelines:\n1. Go to Gmail app\n2. Create an account using the provided name and year of birth\n3. Use the exact assigned email and password\n4. Tap the Done button when finished.")
             
-        elif call.data == "admin_broadcast" && user_id == ADMIN_ID:
+        elif call.data == "admin_broadcast" and user_id == ADMIN_ID:
             user_states[user_id] = "awaiting_broadcast"
             bot.send_message(ADMIN_ID, "📢 Please send the broadcast message to send to all users:")
     except Exception as e:
