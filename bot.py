@@ -219,7 +219,81 @@ def admin_panel(message):
 @bot.message_handler(content_types=['text', 'photo'])
 def handle_message(message):
     user_id = message.chat.id
+    text = message.text if message.content_type == 'text' else (message.caption or "")
     
+    # Global check for Back / Cancel
+    if text in ["⬅️ Back", "🚫 Cancel registration"]:
+        if user_id in user_states:
+            del user_states[user_id]
+        if user_id in user_temp_data:
+            del user_temp_data[user_id]
+        bot.send_message(user_id, "Main Menu:", reply_markup=main_menu())
+        return
+
+    # Global check for My accounts to prevent getting stuck in states
+    if text == "📋 My accounts":
+        if user_id in user_states:
+            del user_states[user_id]
+        if user_id in user_temp_data:
+            del user_temp_data[user_id]
+            
+        conn = get_db()
+        cursor = conn.cursor()
+        try:
+            cursor.execute("SELECT email, password, status, date, reason, account_type FROM pending_tasks WHERE user_id = %s ORDER BY id DESC", (user_id,))
+            tasks = cursor.fetchall()
+        except Exception as e:
+            conn.rollback()
+            cursor.execute("SELECT email, password, status, date, reason FROM pending_tasks WHERE user_id = %s ORDER BY id DESC", (user_id,))
+            rows = cursor.fetchall()
+            tasks = [(r[0], r[1], r[2], r[3], r[4], "New Gmail") for r in rows]
+        cursor.close()
+        conn.close()
+        
+        total_count = len(tasks)
+        paid_count = sum(1 for t in tasks if t[2] == 'approved')
+        pending_count = sum(1 for t in tasks if t[2] == 'pending')
+        declined_count = sum(1 for t in tasks if t[2] == 'rejected')
+        
+        summary_text = (
+            f"📁 **Your submitted accounts ({total_count}):**\n\n"
+            f"📊 Summary:\n"
+            f"✅ Paid: {paid_count}\n"
+            f"⏳ Pending: {pending_count}\n"
+            f"❌ Declined: {declined_count}\n"
+            f"⚠️ Failed: 0\n"
+        )
+        bot.send_message(user_id, summary_text, reply_markup=main_menu(), parse_mode="Markdown")
+        
+        if tasks:
+            for i, t in enumerate(tasks[:15], 1):
+                email, pwd, status, date_str, reason = t[0], t[1], t[2], t[3], t[4]
+                acc_type = t[5] if len(t) > 5 and t[5] else "New Gmail"
+                
+                if not date_str:
+                    date_str = datetime.now().strftime("%m/%d/%Y")
+                
+                if status == 'approved':
+                    icon = "✅"
+                    status_text = "paid"
+                elif status == 'pending':
+                    icon = "⏳"
+                    status_text = "pending"
+                else:
+                    icon = "❌"
+                    status_text = "declined"
+                
+                msg = (
+                    f"{i}. {icon} {acc_type}\n"
+                    f"💰 ${GMAIL_RATE:.2f} | 📅 {date_str} | {status_text}\n"
+                    f"📋 `{email}:{pwd}`"
+                )
+                if status == 'rejected' and reason:
+                    msg += f"\n💬 {reason}"
+                
+                bot.send_message(user_id, msg, parse_mode="Markdown")
+        return
+
     if user_id in user_states:
         state = user_states[user_id]
         
@@ -276,7 +350,7 @@ def handle_message(message):
             del user_states[user_id]
             
             try:
-                custom_price = float(message.text.strip())
+                custom_price = float(text.strip())
             except ValueError:
                 bot.send_message(ADMIN_ID, "❌ Invalid amount! Please send a valid number (e.g. 0.30):")
                 user_states[ADMIN_ID] = f"awaiting_custom_price_{task_id}_{target_user_id}"
@@ -308,7 +382,6 @@ def handle_message(message):
                 pass
             return
 
-        text = message.text if message.content_type == 'text' else ""
         user_data = get_user_data(user_id)
         
         # --- "Submit My Own" Multi-step Flow ---
@@ -473,7 +546,6 @@ def handle_message(message):
     if message.content_type != 'text':
         return
 
-    text = message.text
     user_data = get_user_data(user_id)
 
     if "Register a new Gmail" in text:
@@ -543,74 +615,10 @@ def handle_message(message):
             history_text = "📝 Balance History:\n\n" + "\n".join([r[0] for r in rows])
             bot.send_message(user_id, history_text)
             
-    elif text == "⬅️ Back" or text == "🚫 Cancel registration":
-        if user_id in user_states:
-            del user_states[user_id]
-        if user_id in user_temp_data:
-            del user_temp_data[user_id]
-        bot.send_message(user_id, "Main Menu:", reply_markup=main_menu())
-        
     elif text == "👥 My referrals":
         bot_info = bot.get_me()
         ref_link = f"https://t.me/{bot_info.username}?start={user_id}"
         bot.send_message(user_id, f"👥 **Your Referral Link:**\n{ref_link}\n\n🎁 Invite friends and earn ${REF_BONUS:.2f} per active referral!", parse_mode="Markdown")
-        
-    elif text == "📋 My accounts":
-        conn = get_db()
-        cursor = conn.cursor()
-        try:
-            cursor.execute("SELECT email, password, status, date, reason, account_type FROM pending_tasks WHERE user_id = %s ORDER BY id DESC", (user_id,))
-            tasks = cursor.fetchall()
-        except Exception as e:
-            conn.rollback()
-            cursor.execute("SELECT email, password, status, date, reason FROM pending_tasks WHERE user_id = %s ORDER BY id DESC", (user_id,))
-            rows = cursor.fetchall()
-            tasks = [(r[0], r[1], r[2], r[3], r[4], "New Gmail") for r in rows]
-        cursor.close()
-        conn.close()
-        
-        total_count = len(tasks)
-        paid_count = sum(1 for t in tasks if t[2] == 'approved')
-        pending_count = sum(1 for t in tasks if t[2] == 'pending')
-        declined_count = sum(1 for t in tasks if t[2] == 'rejected')
-        
-        summary_text = (
-            f"📁 **Your submitted accounts ({total_count}):**\n\n"
-            f"📊 Summary:\n"
-            f"✅ Paid: {paid_count}\n"
-            f"⏳ Pending: {pending_count}\n"
-            f"❌ Declined: {declined_count}\n"
-            f"⚠️ Failed: 0\n"
-        )
-        bot.send_message(user_id, summary_text, parse_mode="Markdown")
-        
-        if tasks:
-            for i, t in enumerate(tasks[:15], 1):
-                email, pwd, status, date_str, reason = t[0], t[1], t[2], t[3], t[4]
-                acc_type = t[5] if len(t) > 5 and t[5] else "New Gmail"
-                
-                if not date_str:
-                    date_str = datetime.now().strftime("%m/%d/%Y")
-                
-                if status == 'approved':
-                    icon = "✅"
-                    status_text = "paid"
-                elif status == 'pending':
-                    icon = "⏳"
-                    status_text = "pending"
-                else:
-                    icon = "❌"
-                    status_text = "declined"
-                
-                msg = (
-                    f"{i}. {icon} {acc_type}\n"
-                    f"💰 ${GMAIL_RATE:.2f} | 📅 {date_str} | {status_text}\n"
-                    f"📋 `{email}:{pwd}`"
-                )
-                if status == 'rejected' and reason:
-                    msg += f"\n💬 {reason}"
-                
-                bot.send_message(user_id, msg, parse_mode="Markdown")
         
     elif text == "⚙️ Settings":
         bot.send_message(user_id, "⚙️ Settings option coming soon.")
@@ -832,7 +840,6 @@ def callback_listener(call):
         conn.close()
         
         if not rows:
-            bot.answer_keyword_query = None # type: ignore
             bot.answer_callback_query(call.id, "No pending tasks found!")
             return
             
@@ -885,7 +892,7 @@ def callback_listener(call):
             user_id,
             "ℹ️ নিয়মাবলি:\n1. জিমেইল অ্যাপে যান\n2. প্রদত্ত নাম ও জন্ম সাল দিয়ে একাউন্ট তৈরি করুন\n3. ঠিক নির্দিষ্ট জিমেইল এবং পাসওয়ার্ড ব্যবহার করুন\n4. কাজ শেষ হলে Done বাটনে ক্লিক করুন।"
         )
-    elif call.data == "admin_broadcast" and user_id == ADMIN_ID:
+    elif call.data == "admin_broadcast" && user_id == ADMIN_ID:
         user_states[user_id] = "awaiting_broadcast"
         bot.send_message(ADMIN_ID, "📢 সকল ব্যবহারকারীকে পাঠানোর জন্য ব্রডকাস্ট মেসেজটি লিখুন:")
 
