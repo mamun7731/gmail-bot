@@ -211,14 +211,17 @@ def handle_message(message):
     try:
         user_id = message.chat.id
         text = message.text if message.content_type == 'text' else (message.caption or "")
+        text_lower = text.lower()
         
-        if text in ["⬅️ Back", "🚫 Cancel registration"] or "Cancel registration" in text:
+        # Global escape or cancel
+        if "cancel" in text_lower or "back" in text_lower or "⬅️ back" in text_lower:
             user_states.pop(user_id, None)
             user_temp_data.pop(user_id, None)
             bot.send_message(user_id, "Main Menu:", reply_markup=main_menu())
             return
 
-        if "My accounts" in text or "📋 My accounts" in text:
+        # Global catch for "My accounts" regardless of state
+        if "account" in text_lower:
             user_states.pop(user_id, None)
             user_temp_data.pop(user_id, None)
                 
@@ -352,7 +355,7 @@ def handle_message(message):
             user_data = get_user_data(user_id)
             
             if state == "sub_awaiting_type":
-                acc_type = "Old Gmail" if "old" in text.lower() or "🌟" in text else "New Gmail"
+                acc_type = "Old Gmail" if "old" in text_lower or "🌟" in text else "New Gmail"
                 user_temp_data[user_id] = {"account_type": acc_type}
                 user_states[user_id] = "sub_awaiting_email"
                 markup = ReplyKeyboardMarkup(resize_keyboard=True, selective=True)
@@ -382,7 +385,7 @@ def handle_message(message):
                 return
                 
             elif state == "sub_awaiting_recovery":
-                is_skip = "skip" in text.lower() or "⏭" in text or "skip recovery" in text.lower() or not text.strip()
+                is_skip = "skip" in text_lower or "⏭" in text or not text.strip()
                 recovery_val = "None" if is_skip else text
                 
                 if user_id not in user_temp_data:
@@ -501,7 +504,7 @@ def handle_message(message):
 
         user_data = get_user_data(user_id)
 
-        if "Register a new Gmail" in text or "➕ Register a new Gmail" in text:
+        if "register" in text_lower or "➕" in text:
             conn = get_db()
             cursor = conn.cursor()
             selected_acc = generate_unique_gmail(cursor)
@@ -534,19 +537,19 @@ def handle_message(message):
             markup.add(InlineKeyboardButton("❓ How to create account", callback_data="btn_help"))
             bot.send_message(user_id, response_text, parse_mode="Markdown", reply_markup=markup)
 
-        elif "Submit my own" in text or "📥 Submit my own" in text:
+        elif "submit" in text_lower or "📥" in text:
             user_states[user_id] = "sub_awaiting_type"
             markup = ReplyKeyboardMarkup(resize_keyboard=True, selective=True)
             markup.add(KeyboardButton("⭐ New Gmail"), KeyboardButton("🌟 Old Gmail"))
             markup.add(KeyboardButton("🚫 Cancel registration"))
             bot.send_message(user_id, "📥 Please select which type of Gmail you want to submit:", reply_markup=markup)
             
-        elif text == "💰 Balance":
+        elif "balance" in text_lower and "history" not in text_lower:
             bal = round(user_data["balance"], 2)
             hold = round(user_data["hold_balance"], 2)
             bot.send_message(user_id, f"Balance: {bal}$\nHold: {hold}$", reply_markup=balance_menu())
             
-        elif text == "💳 Payout":
+        elif "payout" in text_lower or "💳" in text:
             bal = round(user_data["balance"], 2)
             if bal < MIN_PAYOUT:
                 bot.send_message(user_id, f"⚠️ Minimum payout amount is ${MIN_PAYOUT:.2f}. Your current balance is ${bal:.2f}.")
@@ -557,7 +560,7 @@ def handle_message(message):
                 markup.add(InlineKeyboardButton("🔹 Crypto BEP20 (Fee: $0.03)", callback_data="pay_crypto"))
                 bot.send_message(user_id, f"💰 Your Balance: ${bal:.2f}\n\nSelect your payout method:", reply_markup=markup)
                 
-        elif text == "📝 Balance history":
+        elif "history" in text_lower or "📝" in text:
             conn = get_db()
             cursor = conn.cursor()
             cursor.execute("SELECT text FROM history WHERE user_id = %s ORDER BY id DESC LIMIT 10", (user_id,))
@@ -569,12 +572,12 @@ def handle_message(message):
             else:
                 bot.send_message(user_id, "📝 Balance History:\n\n" + "\n".join([r[0] for r in rows]))
                 
-        elif text == "👥 My referrals":
+        elif "referral" in text_lower or "👥" in text:
             bot_info = bot.get_me()
             ref_link = f"https://t.me/{bot_info.username}?start={user_id}"
             bot.send_message(user_id, f"👥 **Your Referral Link:**\n{ref_link}\n\n🎁 Invite friends and earn ${REF_BONUS:.2f} per active referral!", parse_mode="Markdown")
             
-        elif text == "💬 Help":
+        elif "help" in text_lower or "💬" in text:
             bot.send_message(user_id, "💬 Support contact: @mamun9894")
     except Exception as e:
         print(f"handle_message error: {e}")
@@ -815,7 +818,7 @@ def callback_listener(call):
     except Exception as e:
         print(f"callback_listener error: {e}")
 
-# Flask Web Server & Force Webhook Reset
+# Flask Web Server & Webhook Handler
 app = Flask(__name__)
 
 @app.route(f"/{TOKEN}", methods=['POST'])
@@ -833,7 +836,6 @@ def home():
 
 if __name__ == "__main__":
     try:
-        # Force delete old webhooks using direct Telegram API request
         requests.get(f"https://api.telegram.org/bot{TOKEN}/deleteWebhook?drop_pending_updates=true")
         
         render_url = os.environ.get("RENDER_EXTERNAL_URL")
