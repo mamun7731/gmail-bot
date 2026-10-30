@@ -45,13 +45,15 @@ def init_db():
                 status TEXT DEFAULT 'pending',
                 date TEXT,
                 reason TEXT DEFAULT NULL,
-                account_type TEXT DEFAULT 'New Gmail'
+                account_type TEXT DEFAULT 'New Gmail',
+                reward_amount REAL DEFAULT 0.15
             )
         ''')
         cursor.execute('ALTER TABLE pending_tasks ADD COLUMN IF NOT EXISTS recovery TEXT DEFAULT \'None\';')
         cursor.execute('ALTER TABLE pending_tasks ADD COLUMN IF NOT EXISTS date TEXT;')
         cursor.execute('ALTER TABLE pending_tasks ADD COLUMN IF NOT EXISTS reason TEXT DEFAULT NULL;')
         cursor.execute("ALTER TABLE pending_tasks ADD COLUMN IF NOT EXISTS account_type TEXT DEFAULT 'New Gmail';")
+        cursor.execute("ALTER TABLE pending_tasks ADD COLUMN IF NOT EXISTS reward_amount REAL DEFAULT 0.15;")
         
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS history (
@@ -208,8 +210,8 @@ def process_submission_done(user_id, email, password, recovery, acc_type, messag
         conn = get_db()
         cursor = conn.cursor()
         cursor.execute(
-            "INSERT INTO pending_tasks (user_id, email, password, recovery, status, date, account_type) VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING id",
-            (user_id, email, password, recovery, 'pending', current_date, acc_type)
+            "INSERT INTO pending_tasks (user_id, email, password, recovery, status, date, account_type, reward_amount) VALUES (%s, %s, %s, %s, %s, %s, %s, %s) RETURNING id",
+            (user_id, email, password, recovery, 'pending', current_date, acc_type, GMAIL_RATE)
         )
         task_id = cursor.fetchone()[0]
         cursor.execute("UPDATE users SET hold_balance = hold_balance + %s WHERE user_id = %s", (GMAIL_RATE, user_id))
@@ -310,8 +312,11 @@ def handle_message(message):
                         icon, status_text = "❌", "declined"
                     
                     msg = f"{i}. {icon} {acc_type}\n💰 ${GMAIL_RATE:.2f} | 📅 {date_str} | {status_text}\n📋 {email}:{pwd}"
-                    if status == 'rejected' and reason:
-                        msg += f"\n💬 **Decline Reason:** {reason}"
+                    if status == 'rejected':
+                        if reason and reason.strip():
+                            msg += f"\n💬 **Decline Reason:** {reason}"
+                        else:
+                            msg += f"\n💬 **Decline Reason:** Photo proof provided / Rejected by admin."
                     bot.send_message(user_id, msg)
             else:
                 bot.send_message(user_id, "📁 You have not submitted any accounts yet.", reply_markup=main_menu())
@@ -346,13 +351,17 @@ def handle_message(message):
                 target_user_id = int(parts[4])
                 user_states.pop(user_id, None)
                 
-                reason = message.caption if message.content_type == 'photo' else message.text
-                if not reason:
-                    reason = "No reason provided."
-                
+                # Fix: Capture text or photo caption properly
+                reason = message.text if message.content_type == 'text' else (message.caption or "")
                 photo_id = message.photo[-1].file_id if message.content_type == 'photo' else None
+                
                 if photo_id:
-                    reason = f"{reason} [Photo attached]"
+                    if reason:
+                        reason = f"{reason} [Photo attached]"
+                    else:
+                        reason = "Rejected with photo proof [Photo attached]"
+                elif not reason or not reason.strip():
+                    reason = "No reason provided."
                     
                 conn = get_db()
                 cursor = conn.cursor()
@@ -401,7 +410,7 @@ def handle_message(message):
                     return
                     
                 email = task[0]
-                cursor.execute("UPDATE pending_tasks SET status = 'approved' WHERE id = %s", (task_id,))
+                cursor.execute("UPDATE pending_tasks SET status = 'approved', reward_amount = %s WHERE id = %s", (custom_price, task_id))
                 cursor.execute("UPDATE users SET balance = balance + %s, hold_balance = GREATEST(0, hold_balance - %s), completed_count = completed_count + 1 WHERE user_id = %s", (custom_price, GMAIL_RATE, target_user_id))
                 cursor.execute("INSERT INTO history (user_id, text) VALUES (%s, %s)", (target_user_id, f"+${custom_price:.2f} - Gmail Approved ({email}) [Custom]"))
                 conn.commit()
@@ -688,7 +697,7 @@ def callback_listener(call):
             
             conn = get_db()
             cursor = conn.cursor()
-            cursor.execute("SELECT email, status FROM pending_tasks WHERE id = %s", (task_id,))
+            cursor.execute("SELECT email, status, reward_amount FROM pending_tasks WHERE id = %s", (task_id,))
             task = cursor.fetchone()
             if not task:
                 cursor.close()
@@ -696,7 +705,7 @@ def callback_listener(call):
                 bot.answer_callback_query(call.id, "Task not found!")
                 return
                 
-            email, current_status = task[0], task[1]
+            email, current_status, reward_amt = task[0], task[1], (task[2] if task[2] is not None else GMAIL_RATE)
             
             if action == "app":
                 if current_status != 'pending':
@@ -706,6 +715,7 @@ def callback_listener(call):
                     return
                 cursor.execute("UPDATE pending_tasks SET status = 'approved' WHERE id = %s", (task_id,))
                 cursor.execute("UPDATE users SET balance = balance + %s, hold_balance = GREATEST(0, hold_balance - %s), completed_count = completed_count + 1 WHERE user_id = %s", (GMAIL_RATE, GMAIL_RATE, target_user_id))
+                cursor.execute("UPDATE pending_tasks SET reward_amount = %s WHERE id = %s", (GMAIL_RATE, task_id))
                 cursor.execute("INSERT INTO history (user_id, text) VALUES (%s, %s)", (target_user_id, f"+${GMAIL_RATE:.2f} - Gmail Approved ({email})"))
                 conn.commit()
                 cursor.close()
@@ -727,19 +737,7 @@ def callback_listener(call):
                     bot.answer_callback_query(call.id, "Only approved tasks can be cancelled!")
                     return
                 
-                # Automatically extract the exact reward amount given to this user for this email from history
-                cursor.execute("SELECT text FROM history WHERE user_id = %s AND text LIKE %s ORDER BY id DESC LIMIT 1", (target_user_id, f"%Gmail Approved ({email})%"))
-                hist_row = cursor.fetchone()
-                deduct_amount = GMAIL_RATE
-                if hist_row:
-                    h_text = hist_row[0]
-                    # Parse amount e.g. "+$0.25 - Gmail Approved..." or "+$0.05..."
-                    try:
-                        if "+$" in h_text:
-                            part_str = h_text.split("+$")[1].split(" - ")[0]
-                            deduct_amount = float(part_str)
-                    except Exception as ex:
-                        print(f"Error parsing reward amount from history: {ex}")
+                deduct_amount = reward_amt if reward_amt else GMAIL_RATE
 
                 cursor.execute("UPDATE pending_tasks SET status = 'rejected', reason = 'Approval cancelled by admin' WHERE id = %s", (task_id,))
                 cursor.execute("UPDATE users SET balance = GREATEST(0, balance - %s), completed_count = GREATEST(0, completed_count - 1) WHERE user_id = %s", (deduct_amount, target_user_id))
