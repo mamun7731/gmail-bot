@@ -332,7 +332,9 @@ def handle_message(message):
             return
             
         elif state == "sub_awaiting_recovery":
-            user_temp_data[user_id]["recovery"] = text if "skip" not in text.lower() else "None"
+            # Fixed Skip check to catch any form of skip button click safely
+            is_skip = "skip" in text.lower() or "⏭" in text
+            user_temp_data[user_id]["recovery"] = "None" if is_skip else text
             
             acc = user_temp_data[user_id]
             email = acc["email"]
@@ -550,8 +552,14 @@ def handle_message(message):
     elif text == "📋 My accounts":
         conn = get_db()
         cursor = conn.cursor()
-        cursor.execute("SELECT email, password, status, date, reason, account_type FROM pending_tasks WHERE user_id = %s ORDER BY id DESC", (user_id,))
-        tasks = cursor.fetchall()
+        try:
+            cursor.execute("SELECT email, password, status, date, reason, account_type FROM pending_tasks WHERE user_id = %s ORDER BY id DESC", (user_id,))
+            tasks = cursor.fetchall()
+        except Exception as e:
+            conn.rollback()
+            cursor.execute("SELECT email, password, status, date, reason FROM pending_tasks WHERE user_id = %s ORDER BY id DESC", (user_id,))
+            rows = cursor.fetchall()
+            tasks = [(r[0], r[1], r[2], r[3], r[4], "New Gmail") for r in rows]
         cursor.close()
         conn.close()
         
@@ -572,11 +580,11 @@ def handle_message(message):
         
         if tasks:
             for i, t in enumerate(tasks[:15], 1):
-                email, pwd, status, date_str, reason, acc_type = t[0], t[1], t[2], t[3], t[4], t[5]
+                email, pwd, status, date_str, reason = t[0], t[1], t[2], t[3], t[4]
+                acc_type = t[5] if len(t) > 5 and t[5] else "New Gmail"
+                
                 if not date_str:
                     date_str = datetime.now().strftime("%m/%d/%Y")
-                if not acc_type:
-                    acc_type = "New Gmail"
                 
                 if status == 'approved':
                     icon = "✅"
@@ -804,7 +812,7 @@ def callback_listener(call):
                 chat_id=ADMIN_ID,
                 message_id=call.message.message_id,
                 text=call.message.text + f"\n\n👉 **Status:** Rejected clicked! Now send the **Reject Reason (Text or Photo with caption)** in chat for user `{target_user_id}`:",
-                parse_mode="Markdown"
+                parse_Mode="Markdown"
             )
 
     elif call.data == "admin_view_pending":
