@@ -10,6 +10,7 @@ from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeybo
 TOKEN = '8788513514:AAGwboQDDtl198sib3_3GX3ahtmh0wg4iS0'
 bot = telebot.TeleBot(TOKEN)
 
+# --- CORRECT ADMIN ID ---
 ADMIN_ID = 5813365228
 
 GMAIL_RATE = 0.15
@@ -686,7 +687,6 @@ def callback_listener(call):
         assigned = cursor.fetchone()
         
         if not assigned:
-            # Fallback if assigned_gmails record is missing but user clicked Done
             letters = ''.join(random.choices(string.ascii_letters, k=8))
             numbers = ''.join(random.choices(string.digits, k=4))
             email = f"{letters}{numbers}@gmail.com"
