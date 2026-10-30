@@ -48,15 +48,12 @@ def init_db():
                 account_type TEXT DEFAULT 'New Gmail'
             )
         ''')
-        cursor.execute('''
-            ALTER TABLE pending_tasks ADD COLUMN IF NOT EXISTS recovery TEXT DEFAULT 'None';
-        ''')
-        cursor.execute('''
-            ALTER TABLE pending_tasks ADD COLUMN IF NOT EXISTS reason TEXT DEFAULT NULL;
-        ''')
-        cursor.execute('''
-            ALTER TABLE pending_tasks ADD COLUMN IF NOT EXISTS account_type TEXT DEFAULT 'New Gmail';
-        ''')
+        # Force add missing columns if table already existed without them
+        cursor.execute('ALTER TABLE pending_tasks ADD COLUMN IF NOT EXISTS recovery TEXT DEFAULT "None";')
+        cursor.execute('ALTER TABLE pending_tasks ADD COLUMN IF NOT EXISTS date TEXT;')
+        cursor.execute('ALTER TABLE pending_tasks ADD COLUMN IF NOT EXISTS reason TEXT DEFAULT NULL;')
+        cursor.execute("ALTER TABLE pending_tasks ADD COLUMN IF NOT EXISTS account_type TEXT DEFAULT 'New Gmail';")
+        
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS history (
                 id SERIAL PRIMARY KEY,
@@ -321,7 +318,6 @@ def handle_message(message):
                 bot.send_message(user_id, "📁 You have not submitted any accounts yet.", reply_markup=main_menu())
             return
 
-        # Handle text-based "Done" fallback for auto-generated gmail registration
         if "done" in text_lower or "✔" in text:
             if user_id in user_temp_data and "assigned_email" in user_temp_data[user_id]:
                 email = user_temp_data[user_id]["assigned_email"]
