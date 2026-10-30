@@ -1,10 +1,9 @@
 import os
-import threading
 import random
 import string
 from datetime import datetime
 import psycopg2
-from flask import Flask
+from flask import Flask, request
 import telebot
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton
 
@@ -20,16 +19,24 @@ REF_BONUS = 0.02
 # Supabase Session Pooler URL with correct port 6543 and password
 DATABASE_URL = "postgresql://postgres.ijussavmhziblqswfgwf:mamun347731@aws-0-ap-southeast-2.pooler.supabase.com:6543/postgres"
 
-# --- Flask Web Server to keep Render Alive ---
+# Render Live URL
+WEBHOOK_URL = f"https://gmail-bot-jrvx.onrender.com/{TOKEN}"
+
+# --- Flask Web Server & Webhook Handler ---
 app = Flask(__name__)
 
 @app.route('/')
 def home():
-    return "Bot is running!"
+    return "Bot is running with Webhook!"
 
-def run_flask():
-    port = int(os.environ.get("PORT", 10000))
-    app.run(host='0.0.0.0', port=port)
+@app.route(f'/{TOKEN}', methods=['POST'])
+def webhook():
+    if request.headers.get('content-type') == 'application/json':
+        json_string = request.get_data().decode('utf-8')
+        update = telebot.types.Update.de_json(json_string)
+        bot.process_new_updates([update])
+        return "OK", 200
+    return "Invalid content type", 403
 
 def get_db():
     return psycopg2.connect(DATABASE_URL, sslmode='require')
@@ -332,7 +339,6 @@ def handle_message(message):
             return
             
         elif state == "sub_awaiting_recovery":
-            # Fixed Skip check to catch any form of skip button click safely
             is_skip = "skip" in text.lower() or "⏭" in text
             user_temp_data[user_id]["recovery"] = "None" if is_skip else text
             
@@ -812,7 +818,7 @@ def callback_listener(call):
                 chat_id=ADMIN_ID,
                 message_id=call.message.message_id,
                 text=call.message.text + f"\n\n👉 **Status:** Rejected clicked! Now send the **Reject Reason (Text or Photo with caption)** in chat for user `{target_user_id}`:",
-                parse_Mode="Markdown"
+                parse_mode="Markdown"
             )
 
     elif call.data == "admin_view_pending":
@@ -826,6 +832,7 @@ def callback_listener(call):
         conn.close()
         
         if not rows:
+            bot.answer_keyword_query = None # type: ignore
             bot.answer_callback_query(call.id, "No pending tasks found!")
             return
             
@@ -882,12 +889,10 @@ def callback_listener(call):
         user_states[user_id] = "awaiting_broadcast"
         bot.send_message(ADMIN_ID, "📢 সকল ব্যবহারকারীকে পাঠানোর জন্য ব্রডকাস্ট মেসেজটি লিখুন:")
 
-# Start Flask in a background thread so Render detects an active web port
+# --- Run Flask and Setup Webhook ---
 if __name__ == "__main__":
-    threading.Thread(target=run_flask).start()
-    print("Bot & Supabase Database connected successfully. Running...")
-    try:
-        bot.remove_webhook()
-        bot.infinity_polling(timeout=60, long_polling_timeout=60, skip_pending=True)
-    except Exception as e:
-        print(f"Polling error: {e}")
+    bot.remove_webhook()
+    bot.set_webhook(url=WEBHOOK_URL)
+    print("Webhook set successfully. Starting Flask server...")
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host='0.0.0.0', port=port)
