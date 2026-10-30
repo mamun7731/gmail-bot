@@ -296,7 +296,7 @@ def handle_message(message):
 
     # Third Priority: Check if user is in recovery step and clicked skip
     if user_id in user_states and user_states[user_id] == "sub_awaiting_recovery":
-        if "skip" in text.lower() or "⏭" in text:
+        if "skip" in text.lower() or "⏭" in text or "skip recovery" in text.lower():
             user_temp_data[user_id]["recovery"] = "None"
             
             acc = user_temp_data[user_id]
