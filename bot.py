@@ -5,6 +5,8 @@ from datetime import datetime
 import psycopg2
 import telebot
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton
+from flask import Flask
+from threading import Thread
 
 TOKEN = '8788513514:AAGwboQDDtl198sib3_3GX3ahtmh0wg4iS0'
 bot = telebot.TeleBot(TOKEN)
@@ -206,7 +208,6 @@ def handle_message(message):
         user_id = message.chat.id
         text = message.text if message.content_type == 'text' else (message.caption or "")
         
-        # Global priority for "My accounts"
         if "My accounts" in text:
             user_states.pop(user_id, None)
             user_temp_data.pop(user_id, None)
@@ -265,7 +266,6 @@ def handle_message(message):
             bot.send_message(user_id, "Main Menu:", reply_markup=main_menu())
             return
 
-        # Handle user states
         if user_id in user_states:
             state = user_states[user_id]
             
@@ -805,10 +805,26 @@ def callback_listener(call):
     except Exception as e:
         print(f"callback_listener error: {e}")
 
+# Dummy web server to keep Render happy in Web Service mode
+app = Flask(__name__)
+
+@app.route('/')
+def home():
+    return "Bot is running!"
+
+def run_flask():
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host="0.0.0.0", port=port)
+
 if __name__ == "__main__":
     try:
+        # Start Flask in a background thread so Render's port check passes
+        t = Thread(target=run_flask)
+        t.daemon = True
+        t.start()
+        
         bot.remove_webhook()
-        print("Starting Bot in Polling Mode...")
+        print("Starting Bot in Polling Mode with Web Server...")
         bot.infinity_polling(timeout=60, long_polling_timeout=60)
     except Exception as e:
         print(f"Polling error: {e}")
