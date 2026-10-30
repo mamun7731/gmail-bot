@@ -6,6 +6,7 @@ import psycopg2
 import telebot
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton
 from flask import Flask, request
+import requests
 
 TOKEN = '8788513514:AAGwboQDDtl198sib3_3GX3ahtmh0wg4iS0'
 bot = telebot.TeleBot(TOKEN)
@@ -814,7 +815,7 @@ def callback_listener(call):
     except Exception as e:
         print(f"callback_listener error: {e}")
 
-# Flask Web Server & Webhook Handler
+# Flask Web Server & Force Webhook Reset
 app = Flask(__name__)
 
 @app.route(f"/{TOKEN}", methods=['POST'])
@@ -832,12 +833,14 @@ def home():
 
 if __name__ == "__main__":
     try:
-        bot.remove_webhook()
+        # Force delete old webhooks using direct Telegram API request
+        requests.get(f"https://api.telegram.org/bot{TOKEN}/deleteWebhook?drop_pending_updates=true")
+        
         render_url = os.environ.get("RENDER_EXTERNAL_URL")
         if render_url:
             webhook_url = f"{render_url}/{TOKEN}"
             bot.set_webhook(url=webhook_url)
-            print(f"Webhook set to: {webhook_url}")
+            print(f"Webhook forcefully set to: {webhook_url}")
 
         port = int(os.environ.get("PORT", 10000))
         app.run(host="0.0.0.0", port=port)
