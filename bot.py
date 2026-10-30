@@ -221,7 +221,7 @@ def handle_message(message):
     user_id = message.chat.id
     text = message.text if message.content_type == 'text' else (message.caption or "")
     
-    # 1. Handle "My accounts" globally
+    # 1. Handle "My accounts" globally with absolute priority
     if "My accounts" in text:
         if user_id in user_states:
             del user_states[user_id]
@@ -417,10 +417,10 @@ def handle_message(message):
             recovery_val = "None" if is_skip else text
             user_temp_data[user_id]["recovery"] = recovery_val
             
-            acc = user_temp_data[user_id]
-            email = acc["email"]
-            password = acc["password"]
-            acc_type = acc["account_type"]
+            acc = user_temp_data.get(user_id, {})
+            email = acc.get("email", "unknown@gmail.com")
+            password = acc.get("password", "123456")
+            acc_type = acc.get("account_type", "New Gmail")
             current_date = datetime.now().strftime("%m/%d/%Y")
             
             if user_id in user_states:
@@ -855,7 +855,7 @@ def callback_listener(call):
             markup = InlineKeyboardMarkup()
             markup.add(
                 InlineKeyboardButton("✅ Approve ($0.15)", callback_data=f"app_{t_id}_{u_id}"),
-                InlineKeyboardButton("💵 Custom Price", callback_data=f"customapp_{t_id}_{u_id}"),
+                InlineKeyboardButton("💵 Custom Price", callback_data=f"customapp_{t_id}_{u_id}")
             )
             markup.add(InlineKeyboardButton("❌ Reject", callback_data=f"rej_{t_id}_{u_id}"))
             
