@@ -221,17 +221,8 @@ def handle_message(message):
     user_id = message.chat.id
     text = message.text if message.content_type == 'text' else (message.caption or "")
     
-    # Global check for Back / Cancel
-    if text in ["⬅️ Back", "🚫 Cancel registration"]:
-        if user_id in user_states:
-            del user_states[user_id]
-        if user_id in user_temp_data:
-            del user_temp_data[user_id]
-        bot.send_message(user_id, "Main Menu:", reply_markup=main_menu())
-        return
-
-    # Global check for My accounts to prevent getting stuck in states
-    if text == "📋 My accounts":
+    # Global check for My accounts (Priority 1)
+    if "My accounts" in text:
         if user_id in user_states:
             del user_states[user_id]
         if user_id in user_temp_data:
@@ -292,6 +283,15 @@ def handle_message(message):
                     msg += f"\n💬 {reason}"
                 
                 bot.send_message(user_id, msg, parse_mode="Markdown")
+        return
+
+    # Global check for Back / Cancel
+    if text in ["⬅️ Back", "🚫 Cancel registration"]:
+        if user_id in user_states:
+            del user_states[user_id]
+        if user_id in user_temp_data:
+            del user_temp_data[user_id]
+        bot.send_message(user_id, "Main Menu:", reply_markup=main_menu())
         return
 
     if user_id in user_states:
@@ -412,7 +412,7 @@ def handle_message(message):
             return
             
         elif state == "sub_awaiting_recovery":
-            is_skip = "skip" in text.lower() or "⏭" in text
+            is_skip = "skip" in text.lower() or "⏭" in text or "skip recovery" in text.lower()
             user_temp_data[user_id]["recovery"] = "None" if is_skip else text
             
             acc = user_temp_data[user_id]
