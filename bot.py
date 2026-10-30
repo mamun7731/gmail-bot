@@ -373,7 +373,7 @@ def handle_message(message):
                 return
                 
             elif state == "sub_awaiting_recovery":
-                is_skip = "skip" in text.lower() or "⏭" in text or "skip recovery" in text.lower()
+                is_skip = "skip" in text.lower() or "⏭" in text or "skip recovery" in text.lower() or not text.strip()
                 recovery_val = "None" if is_skip else text
                 
                 if user_id not in user_temp_data:
