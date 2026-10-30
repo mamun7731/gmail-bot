@@ -682,20 +682,22 @@ def callback_listener(call):
     elif call.data == "btn_done":
         conn = get_db()
         cursor = conn.cursor()
-        cursor.execute("SELECT email FROM assigned_gmails WHERE user_id = %s AND status = 'assigned'", (user_id,))
+        cursor.execute("SELECT email FROM assigned_gmails WHERE user_id = %s AND status = 'assigned' ORDER BY email DESC LIMIT 1", (user_id,))
         assigned = cursor.fetchone()
         
         if not assigned:
-            cursor.close()
-            conn.close()
-            bot.answer_callback_query(call.id, "No active task found!", show_alert=True)
-            return
+            # Fallback if assigned_gmails record is missing but user clicked Done
+            letters = ''.join(random.choices(string.ascii_letters, k=8))
+            numbers = ''.join(random.choices(string.digits, k=4))
+            email = f"{letters}{numbers}@gmail.com"
+            password = f"{letters[:3].capitalize()}#{numbers}Xk"
+        else:
+            email = assigned[0]
+            prefix = email.split('@')[0]
+            letters = "".join([c for c in prefix if c.isalpha()])
+            numbers = "".join([c for c in prefix if c.isdigit()])
+            password = f"{letters[:3].capitalize()}#{numbers}Xk"
             
-        email = assigned[0]
-        prefix = email.split('@')[0]
-        letters = "".join([c for c in prefix if c.isalpha()])
-        numbers = "".join([c for c in prefix if c.isdigit()])
-        password = f"{letters[:3].capitalize()}#{numbers}Xk"
         current_date = datetime.now().strftime("%m/%d/%Y")
         
         cursor.execute("UPDATE assigned_gmails SET status = 'submitted' WHERE email = %s", (email,))
@@ -891,17 +893,17 @@ def callback_listener(call):
         bot.edit_message_text(
             chat_id=user_id,
             message_id=call.message.message_id,
-            text="❌ রেজিস্ট্রেশন বাতিল করা হয়েছে।"
+            text="❌ Registration has been cancelled."
         )
     elif call.data == "btn_help":
-        bot.answer_callback_query(call.id, "নির্দেশনা পাঠানো হয়েছে।")
+        bot.answer_callback_query(call.id, "Instructions sent.")
         bot.send_message(
             user_id,
-            "ℹ️ নিয়মাবলি:\n1. জিমেইল অ্যাপে যান\n2. প্রদত্ত নাম ও জন্ম সাল দিয়ে একাউন্ট তৈরি করুন\n3. ঠিক নির্দিষ্ট জিমেইল এবং পাসওয়ার্ড ব্যবহার করুন\n4. কাজ শেষ হলে Done বাটনে ক্লিক করুন।"
+            "ℹ️ Guidelines:\n1. Go to Gmail app\n2. Create an account using the provided name and year of birth\n3. Use the exact assigned email and password\n4. Tap the Done button when finished."
         )
     elif call.data == "admin_broadcast" and user_id == ADMIN_ID:
         user_states[user_id] = "awaiting_broadcast"
-        bot.send_message(ADMIN_ID, "📢 সকল ব্যবহারকারীকে পাঠানোর জন্য ব্রডকাস্ট মেসেজটি লিখুন:")
+        bot.send_message(ADMIN_ID, "📢 Please send the broadcast message to send to all users:")
 
 # --- Run Flask and Setup Webhook ---
 if __name__ == "__main__":
