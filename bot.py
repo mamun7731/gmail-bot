@@ -206,6 +206,55 @@ def admin_panel(message):
     except Exception as e:
         print(f"Admin panel error: {e}")
 
+def process_submission_done(user_id, email, password, recovery, acc_type, message_obj):
+    try:
+        current_date = datetime.now().strftime("%m/%d/%Y")
+        conn = get_db()
+        cursor = conn.cursor()
+        cursor.execute(
+            "INSERT INTO pending_tasks (user_id, email, password, recovery, status, date, account_type) VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING id",
+            (user_id, email, password, recovery, 'pending', current_date, acc_type)
+        )
+        task_id = cursor.fetchone()[0]
+        cursor.execute("UPDATE users SET hold_balance = hold_balance + %s WHERE user_id = %s", (GMAIL_RATE, user_id))
+        conn.commit()
+        cursor.close()
+        conn.close()
+        
+        user_info = message_obj.from_user
+        name = user_info.first_name or "Unknown"
+        username = f"@{user_info.username}" if user_info.username else "No Username"
+        
+        u_data = get_user_data(user_id)
+        u_bal = round(u_data["balance"], 2)
+        u_completed = u_data["completed_count"]
+
+        markup = InlineKeyboardMarkup()
+        markup.add(
+            InlineKeyboardButton("✅ Approve ($0.15)", callback_data=f"app_{task_id}_{user_id}"),
+            InlineKeyboardButton("💵 Custom Price", callback_data=f"customapp_{task_id}_{user_id}")
+        )
+        markup.add(InlineKeyboardButton("❌ Reject", callback_data=f"rej_{task_id}_{user_id}"))
+        
+        try:
+            bot.send_message(
+                ADMIN_ID,
+                f"🔔 **New Pending Task ({acc_type})!**\n\n👤 Name: {name}\n🔗 Username: {username}\n🆔 User ID: `{user_id}`\n💰 Balance: ${u_bal}\n✅ Approved Gmails: {u_completed}\n\n📂 Type: **{acc_type}**\n📧 Email: `{email}`\n🔑 Password: `{password}`\n🔄 Recovery: `{recovery}`",
+                parse_mode="Markdown",
+                reply_markup=markup
+            )
+        except Exception as e:
+            print(f"Admin notify error: {e}")
+
+        bot.send_message(
+            user_id,
+            f"⏳ Task submitted successfully ({acc_type})!\n\nYour account is currently under **Hold (Pending review)**. Once admin verifies it, reward will be added to your balance.",
+            reply_markup=main_menu()
+        )
+    except Exception as e:
+        print(f"process_submission_done error: {e}")
+        bot.send_message(user_id, f"❌ Error submitting task: {e}", reply_markup=main_menu())
+
 @bot.message_handler(content_types=['text', 'photo'])
 def handle_message(message):
     try:
@@ -213,14 +262,12 @@ def handle_message(message):
         text = message.text if message.content_type == 'text' else (message.caption or "")
         text_lower = text.lower()
         
-        # Global escape or cancel
         if "cancel" in text_lower or "back" in text_lower or "⬅️ back" in text_lower:
             user_states.pop(user_id, None)
             user_temp_data.pop(user_id, None)
             bot.send_message(user_id, "Main Menu:", reply_markup=main_menu())
             return
 
-        # Global catch for "My accounts" regardless of state
         if "account" in text_lower:
             user_states.pop(user_id, None)
             user_temp_data.pop(user_id, None)
@@ -273,6 +320,27 @@ def handle_message(message):
             else:
                 bot.send_message(user_id, "📁 You have not submitted any accounts yet.", reply_markup=main_menu())
             return
+
+        # Handle text-based "Done" fallback for auto-generated gmail registration
+        if "done" in text_lower or "✔" in text:
+            if user_id in user_temp_data and "assigned_email" in user_temp_data[user_id]:
+                email = user_temp_data[user_id]["assigned_email"]
+                prefix = email.split('@')[0]
+                letters = "".join([c for c in prefix if c.isalpha()])
+                numbers = "".join([c for c in prefix if c.isdigit()])
+                password = f"{letters[:3].capitalize()}#{numbers}Xk"
+                
+                conn = get_db()
+                cursor = conn.cursor()
+                cursor.execute("UPDATE assigned_gmails SET status = 'submitted' WHERE email = %s", (email,))
+                conn.commit()
+                cursor.close()
+                conn.close()
+                
+                user_states.pop(user_id, None)
+                user_temp_data.pop(user_id, None)
+                process_submission_done(user_id, email, password, "None", "New Gmail", message)
+                return
 
         if user_id in user_states:
             state = user_states[user_id]
@@ -397,50 +465,11 @@ def handle_message(message):
                 password = acc.get("password", "123456")
                 recovery = acc.get("recovery", "None")
                 acc_type = acc.get("account_type", "New Gmail")
-                current_date = datetime.now().strftime("%m/%d/%Y")
                 
                 user_states.pop(user_id, None)
                 user_temp_data.pop(user_id, None)
-                    
-                conn = get_db()
-                cursor = conn.cursor()
-                cursor.execute("INSERT INTO pending_tasks (user_id, email, password, recovery, status, date, account_type) VALUES (%s, %s, %s, %s, 'pending', %s, %s) RETURNING id", (user_id, email, password, recovery, current_date, acc_type))
-                task_id = cursor.fetchone()[0]
-                cursor.execute("UPDATE users SET hold_balance = hold_balance + %s WHERE user_id = %s", (GMAIL_RATE, user_id))
-                conn.commit()
-                cursor.close()
-                conn.close()
                 
-                user_info = message.from_user
-                name = user_info.first_name or "Unknown"
-                username = f"@{user_info.username}" if user_info.username else "No Username"
-                
-                u_data = get_user_data(user_id)
-                u_bal = round(u_data["balance"], 2)
-                u_completed = u_data["completed_count"]
-
-                markup = InlineKeyboardMarkup()
-                markup.add(
-                    InlineKeyboardButton("✅ Approve ($0.15)", callback_data=f"app_{task_id}_{user_id}"),
-                    InlineKeyboardButton("💵 Custom Price", callback_data=f"customapp_{task_id}_{user_id}")
-                )
-                markup.add(InlineKeyboardButton("❌ Reject", callback_data=f"rej_{task_id}_{user_id}"))
-                
-                try:
-                    bot.send_message(
-                        ADMIN_ID,
-                        f"🔔 **New Pending Task ({acc_type})!**\n\n👤 Name: {name}\n🔗 Username: {username}\n🆔 User ID: `{user_id}`\n💰 Balance: ${u_bal}\n✅ Approved Gmails: {u_completed}\n\n📂 Type: **{acc_type}**\n📧 Email: `{email}`\n🔑 Password: `{password}`\n🔄 Recovery: `{recovery}`",
-                        parse_mode="Markdown",
-                        reply_markup=markup
-                    )
-                except:
-                    pass
-
-                bot.send_message(
-                    user_id,
-                    f"⏳ Task submitted successfully ({acc_type})!\n\nYour account is currently under **Hold (Pending review)**. Once admin verifies it, reward will be added to your balance.",
-                    reply_markup=main_menu()
-                )
+                process_submission_done(user_id, email, password, recovery, acc_type, message)
                 return
 
             if state in ["payout_bkash", "payout_nagad", "payout_crypto"]:
@@ -531,10 +560,10 @@ def handle_message(message):
                 f"Year of birth: {selected_acc['year']}\n\n"
                 f"🔐 Be sure to use the specified data, otherwise the account will not be paid."
             )
-            markup = InlineKeyboardMarkup()
-            markup.add(InlineKeyboardButton("✔ Done", callback_data="btn_done"))
-            markup.add(InlineKeyboardButton("🚫 Cancel registration", callback_data="btn_cancel"))
-            markup.add(InlineKeyboardButton("❓ How to create account", callback_data="btn_help"))
+            markup = ReplyKeyboardMarkup(resize_keyboard=True, selective=True)
+            markup.add(KeyboardButton("✔ Done"))
+            markup.add(KeyboardButton("🚫 Cancel registration"))
+            markup.add(KeyboardButton("❓ How to create account"))
             bot.send_message(user_id, response_text, parse_mode="Markdown", reply_markup=markup)
 
         elif "submit" in text_lower or "📥" in text:
@@ -642,12 +671,8 @@ def callback_listener(call):
             letters = "".join([c for c in prefix if c.isalpha()])
             numbers = "".join([c for c in prefix if c.isdigit()])
             password = f"{letters[:3].capitalize()}#{numbers}Xk"
-            current_date = datetime.now().strftime("%m/%d/%Y")
             
             cursor.execute("UPDATE assigned_gmails SET status = 'submitted' WHERE email = %s", (email,))
-            cursor.execute("UPDATE users SET hold_balance = hold_balance + %s WHERE user_id = %s", (GMAIL_RATE, user_id))
-            cursor.execute("INSERT INTO pending_tasks (user_id, email, password, recovery, status, date, account_type) VALUES (%s, %s, %s, %s, 'pending', %s, %s) RETURNING id", (user_id, email, password, current_date))
-            task_id = cursor.fetchone()[0]
             conn.commit()
             cursor.close()
             conn.close()
@@ -655,42 +680,8 @@ def callback_listener(call):
             user_temp_data.pop(user_id, None)
             user_states.pop(user_id, None)
             
-            user_info = call.from_user
-            name = user_info.first_name or "Unknown"
-            username = f"@{user_info.username}" if user_info.username else "No Username"
-            u_data = get_user_data(user_id)
-            u_bal = round(u_data["balance"], 2)
-            u_completed = u_data["completed_count"]
-
-            markup = InlineKeyboardMarkup()
-            markup.add(
-                InlineKeyboardButton("✅ Approve ($0.15)", callback_data=f"app_{task_id}_{user_id}"),
-                InlineKeyboardButton("💵 Custom Price", callback_data=f"customapp_{task_id}_{user_id}")
-            )
-            markup.add(InlineKeyboardButton("❌ Reject", callback_data=f"rej_{task_id}_{user_id}"))
-            
-            try:
-                bot.send_message(
-                    ADMIN_ID,
-                    f"🔔 **New Pending Task Check!**\n\n👤 Name: {name}\n🔗 Username: {username}\n🆔 User ID: `{user_id}`\n💰 Balance: ${u_bal}\n✅ Approved Gmails: {u_completed}\n\n📧 Email: `{email}`\n🔑 Password: `{password}`",
-                    parse_mode="Markdown",
-                    reply_markup=markup
-                )
-            except Exception as e:
-                print(f"Admin notify error: {e}")
-
             bot.answer_callback_query(call.id, "Submitted successfully!")
-            try:
-                bot.edit_message_text(
-                    chat_id=user_id,
-                    message_id=call.message.message_id,
-                    text=f"⏳ Task submitted successfully!\n\nYour account is currently under **Hold (Pending review)**. Once admin verifies it, ${GMAIL_RATE:.2f} will be added to your balance within 24 hours."
-                )
-            except Exception as e:
-                bot.send_message(
-                    user_id,
-                    f"⏳ Task submitted successfully!\n\nYour account is currently under **Hold (Pending review)**. Once admin verifies it, ${GMAIL_RATE:.2f} will be added to your balance within 24 hours."
-                )
+            process_submission_done(user_id, email, password, "None", "New Gmail", call.message)
             
         elif call.data.startswith("app_") or call.data.startswith("rej_") or call.data.startswith("cancelapp_"):
             if call.from_user.id != ADMIN_ID:
