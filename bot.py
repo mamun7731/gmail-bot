@@ -396,6 +396,8 @@ def handle_message(message):
             return
 
         elif state == "sub_awaiting_email":
+            if user_id not in user_temp_data:
+                user_temp_data[user_id] = {}
             user_temp_data[user_id]["email"] = text
             user_states[user_id] = "sub_awaiting_password"
             markup = ReplyKeyboardMarkup(resize_keyboard=True, selective=True)
@@ -404,20 +406,25 @@ def handle_message(message):
             return
             
         elif state == "sub_awaiting_password":
+            if user_id not in user_temp_data:
+                user_temp_data[user_id] = {}
             user_temp_data[user_id]["password"] = text
             user_states[user_id] = "sub_awaiting_recovery"
             markup = ReplyKeyboardMarkup(resize_keyboard=True, selective=True)
             markup.add(KeyboardButton("⏭ Skip recovery email"))
             markup.add(KeyboardButton("🚫 Cancel registration"))
-            bot.send_message(user_id, "📧 Please enter your recovery email address, or tap **Skip** — it is optional:", reply_markup=markup)
+            bot.send_message(user_id, "📧 Please enter your recovery email address, or tap **Skip** — it is optional:", parse_mode="Markdown", reply_markup=markup)
             return
             
         elif state == "sub_awaiting_recovery":
             is_skip = "skip" in text.lower() or "⏭" in text or "skip recovery" in text.lower()
             recovery_val = "None" if is_skip else text
+            
+            if user_id not in user_temp_data:
+                user_temp_data[user_id] = {}
             user_temp_data[user_id]["recovery"] = recovery_val
             
-            acc = user_temp_data.get(user_id, {})
+            acc = user_temp_data[user_id]
             email = acc.get("email", "unknown@gmail.com")
             password = acc.get("password", "123456")
             acc_type = acc.get("account_type", "New Gmail")
