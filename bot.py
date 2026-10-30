@@ -3,7 +3,6 @@ import random
 import string
 from datetime import datetime
 import psycopg2
-from flask import Flask, request
 import telebot
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton
 
@@ -17,22 +16,6 @@ MIN_PAYOUT = 0.20
 REF_BONUS = 0.02
 
 DATABASE_URL = "postgresql://postgres.ijussavmhziblqswfgwf:mamun347731@aws-0-ap-southeast-2.pooler.supabase.com:6543/postgres"
-WEBHOOK_URL = f"https://gmail-bot-jrvx.onrender.com/{TOKEN}"
-
-app = Flask(__name__)
-
-@app.route('/')
-def home():
-    return "Bot is running with Webhook!"
-
-@app.route(f'/{TOKEN}', methods=['POST'])
-def webhook():
-    if request.headers.get('content-type') == 'application/json':
-        json_string = request.get_data().decode('utf-8')
-        update = telebot.types.Update.de_json(json_string)
-        bot.process_new_updates([update])
-        return "OK", 200
-    return "Invalid content type", 403
 
 def get_db():
     return psycopg2.connect(DATABASE_URL, sslmode='require')
@@ -803,7 +786,7 @@ def callback_listener(call):
 
         elif call.data == "btn_cancel":
             conn = get_db()
-            cursor = conn.cursor()
+            cursor = ncol_cursor = conn.cursor()
             cursor.execute("DELETE FROM assigned_gmails WHERE user_id = %s AND status = 'assigned'", (user_id,))
             conn.commit()
             cursor.close()
@@ -815,15 +798,16 @@ def callback_listener(call):
             bot.answer_callback_query(call.id, "Instructions sent.")
             bot.send_message(user_id, "ℹ️ Guidelines:\n1. Go to Gmail app\n2. Create an account using the provided name and year of birth\n3. Use the exact assigned email and password\n4. Tap the Done button when finished.")
             
-        elif call.data == "admin_broadcast" and user_id == ADMIN_ID:
+        elif call.data == "admin_broadcast" && user_id == ADMIN_ID:
             user_states[user_id] = "awaiting_broadcast"
             bot.send_message(ADMIN_ID, "📢 Please send the broadcast message to send to all users:")
     except Exception as e:
         print(f"callback_listener error: {e}")
 
 if __name__ == "__main__":
-    bot.remove_webhook()
-    bot.set_webhook(url=WEBHOOK_URL)
-    print("Webhook set successfully. Starting Flask server...")
-    port = int(os.environ.get("PORT", 10000))
-    app.run(host='0.0.0.0', port=port)
+    try:
+        bot.remove_webhook()
+        print("Starting Bot in Polling Mode...")
+        bot.infinity_polling(timeout=60, long_polling_timeout=60)
+    except Exception as e:
+        print(f"Polling error: {e}")
