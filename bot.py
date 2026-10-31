@@ -244,9 +244,21 @@ def process_submission_done(user_id, email, password, recovery, acc_type, messag
         except Exception as e:
             print(f"Admin notify error: {e}")
 
+        # ইউজারকে সাবমিশনের পর ইংরেজিতে কনফার্মেশন ও গুরুত্বপূর্ণ ওয়ার্নিং মেসেজ পাঠানো
+        success_message = (
+            f"✅ **Task submitted successfully ({acc_type})!**\n\n"
+            f"Your account is currently under **Hold (Pending review)**. Once admin verifies it, reward will be added to your balance.\n\n"
+            f"⚠️ **IMPORTANT NOTICE:**\n"
+            f"• **DO NOT LOG OUT** of the Gmail account after submitting it[span_0](start_span)[span_0](end_span). Keep the account logged in on your device/browser[span_1](start_span)[span_1](end_span).\n"
+            f"• Our admin will message you directly (via DM) if needed to add 2FA or complete the verification safely[span_2](start_span)[span_2](end_span).\n"
+            f"• If you log out, the account gets locked or requires verification, resulting in a **Declined** status[span_3](start_span)[span_3](end_span).\n\n"
+            f"Follow this simple rule to ensure your accounts get approved and you get paid! 💸"
+        )
+
         bot.send_message(
             user_id,
-            f"⏳ Task submitted successfully ({acc_type})!\n\nYour account is currently under **Hold (Pending review)**. Once admin verifies it, reward will be added to your balance.",
+            success_message,
+            parse_mode="Markdown",
             reply_markup=main_menu()
         )
     except Exception as e:
@@ -351,7 +363,6 @@ def handle_message(message):
                 target_user_id = int(parts[4])
                 user_states.pop(user_id, None)
                 
-                # Fix: Capture text or photo caption properly
                 reason = message.text if message.content_type == 'text' else (message.caption or "")
                 photo_id = message.photo[-1].file_id if message.content_type == 'photo' else None
                 
