@@ -937,7 +937,7 @@ def callback_listener(call):
             conn = get_db()
             cursor = conn.cursor()
             try:
-                # কোনো LIMIT ছাড়াই ডাটাবেজ থেকে সমস্ত পেন্ডিং টাস্ক একসাথে ফেচ করা হচ্ছে
+                # ডেটাবেজ থেকে সমস্ত পেন্ডিং টাস্ক ফেচ করা হচ্ছে
                 cursor.execute("SELECT id, user_id, email, password, recovery, two_fa, account_type FROM pending_tasks WHERE status = 'pending' ORDER BY id ASC")
                 rows = cursor.fetchall()
             except Exception as e:
@@ -953,7 +953,12 @@ def callback_listener(call):
             bot.answer_callback_query(call.id, f"Loading {len(rows)} pending tasks...")
             
             for r in rows:
-                t_id, u_id, email, pwd, recovery, two_fa, acc_type = r[0], r[1], r[2], r[3], r[4], r[5], r[6]
+                try:
+                    t_id, u_id, email, pwd, recovery, two_fa, acc_type = r[0], r[1], r[2], r[3], r[4], r[5], r[6]
+                except Exception as ex:
+                    print(f"Row unpacking error: {ex}")
+                    continue
+
                 if not acc_type:
                     acc_type = "New Gmail"
                 if not recovery:
@@ -979,7 +984,7 @@ def callback_listener(call):
                         parse_mode="Markdown",
                         reply_markup=markup
                     )
-                    time.sleep(0.4) # টেলিগ্রামের রেট লিমিট বা ফ্লাড এড়াতে নিরাপদ বিরতি
+                    time.sleep(0.3)
                 except Exception as ex:
                     print(f"Send pending message error: {ex}")
 
