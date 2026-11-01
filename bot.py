@@ -509,7 +509,6 @@ def handle_message(message):
 
             elif state == "sub_awaiting_2fa":
                 two_fa_val = "None"
-                
                 is_register_flow = user_temp_data.get(user_id, {}).get("account_type") == "New Gmail" and "assigned_email" in user_temp_data.get(user_id, {})
                 
                 if message.content_type == 'photo':
@@ -521,21 +520,23 @@ def handle_message(message):
                         if secret_key:
                             two_fa_val = secret_key
                         else:
-                            two_fa_val = "QR_Uploaded_But_Not_Decoded"
+                            bot.send_message(user_id, "❌ QR Code scan করা যায়নি! অনুগ্রহ করে পরিষ্কার স্ক্রিনশট পাঠান অথবা টেক্সট সিক্রেট কি দিন।")
+                            return
                     except Exception as e:
                         print(f"2FA QR Read Error: {e}")
-                        two_fa_val = "QR_Upload_Error"
+                        bot.send_message(user_id, "❌ QR Code পড়তে সমস্যা হয়েছে। আবার চেষ্টা করুন।")
+                        return
                 elif message.content_type == 'text':
                     if "skip" in text_lower or "⏭" in text:
                         if is_register_flow:
-                            bot.send_message(user_id, "❌ 2FA QR Code is mandatory for registered Gmails! Please send the QR screenshot or secret key (or cancel registration).")
+                            bot.send_message(user_id, "❌ 2FA QR Code is mandatory! Please send the QR screenshot or secret key.")
                             return
                         two_fa_val = "None"
                     else:
                         two_fa_val = text.strip()
 
-                if is_register_flow and two_fa_val in ["None", "QR_Upload_Error"]:
-                    bot.send_message(user_id, "❌ Please send a valid 2FA QR Code screenshot or text key to proceed!")
+                if is_register_flow and two_fa_val in ["None", "QR_Upload_Error", "QR_Uploaded_But_Not_Decoded"]:
+                    bot.send_message(user_id, "❌ সঠিকভাবে QR code স্ক্যান হয়নি। অনুগ্রহ করে আবার পরিষ্কার স্ক্রিনশট পাঠান।")
                     return
 
                 if user_id not in user_temp_data:
@@ -545,14 +546,33 @@ def handle_message(message):
                 acc = user_temp_data[user_id]
                 email = acc.get("email", "unknown@gmail.com")
                 password = acc.get("password", "123456")
-                recovery = acc.get("recovery", "None")
                 two_fa = acc.get("two_fa", "None")
-                acc_type = acc.get("account_type", "New Gmail")
                 
+                # PyOTP দিয়ে লাইভ OTP Code জেনারেট করা
+                otp_code = "N/A"
+                if two_fa and two_fa != "None":
+                    try:
+                        totp = pyotp.TOTP(two_fa)
+                        otp_code = totp.now()
+                    except Exception as e:
+                        print(f"OTP Generation Error: {e}")
+
                 user_states.pop(user_id, None)
-                user_temp_data.pop(user_id, None)
                 
-                process_submission_done(user_id, email, password, recovery, two_fa, acc_type, message)
+                # ইউজারের কাছে OTP Code এবং Done/Cancel ইনলাইন বাটন পাঠানো
+                user_verification_msg = (
+                    f"📧 **Email:** `{email}`\n"
+                    f"🔑 **Password:** `{password}`\n"
+                    f"🔐 **OTP Code:** `{otp_code}`\n\n"
+                    f"⏳ *Time left for current OTP code: 30 seconds*\n\n"
+                    f"👇 **Click Done after completing verification!**"
+                )
+                
+                markup = InlineKeyboardMarkup()
+                markup.add(InlineKeyboardButton("✔ Done", callback_data="reg_final_done"))
+                markup.add(InlineKeyboardButton("❌ Cancel Registration", callback_data="reg_cancel"))
+                
+                bot.send_message(user_id, user_verification_msg, parse_mode="Markdown", reply_markup=markup)
                 return
 
             if state in ["payout_bkash", "payout_nagad", "payout_crypto"]:
@@ -763,6 +783,27 @@ def callback_listener(call):
                 pass
             bot.send_message(user_id, "Main Menu:", reply_markup=main_menu())
             
+        elif call.data == "reg_final_done":
+            bot.answer_callback_query(call.id, "Task submitted successfully!")
+            try:
+                bot.edit_message_reply_markup(chat_id=user_id, message_id=call.message.message_id, reply_markup=None)
+            except:
+                pass
+                
+            if user_id in user_temp_data:
+                acc = user_temp_data[user_id]
+                email = acc.get("email", "unknown@gmail.com")
+                password = acc.get("password", "123456")
+                recovery = acc.get("recovery", "None")
+                two_fa = acc.get("two_fa", "None")
+                acc_type = acc.get("account_type", "New Gmail")
+                
+                user_temp_data.pop(user_id, None)
+                process_submission_done(user_id, email, password, recovery, two_fa, acc_type, call.message)
+            else:
+                bot.send_message(user_id, "❌ Session expired or already submitted.", reply_markup=main_menu())
+            return
+            
         elif call.data == "btn_done" or call.data.startswith("btn_done_"):
             email = None
             if user_id in user_temp_data and "assigned_email" in user_temp_data[user_id]:
@@ -968,3 +1009,4 @@ if __name__ == "__main__":
         app.run(host="0.0.0.0", port=port)
     except Exception as e:
         print(f"Webhook server error: {e}")
+
