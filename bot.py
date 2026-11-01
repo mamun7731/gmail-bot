@@ -21,6 +21,9 @@ GMAIL_RATE = 0.15
 MIN_PAYOUT = 0.20
 REF_BONUS = 0.02
 
+# How to enable 2FA video link
+HOW_TO_2FA_VIDEO = "https://t.me/Gmail_Farmer2_0News/22"
+
 DATABASE_URL = "postgresql://postgres.ijussavmhziblqswfgwf:mamun347731@aws-0-ap-southeast-2.pooler.supabase.com:6543/postgres"
 
 def get_db():
@@ -367,14 +370,14 @@ def handle_message(message):
                 
                 user_temp_data[user_id]["password"] = password
                 user_temp_data[user_id]["account_type"] = "New Gmail"
-                user_temp_data[user_id]["recovery"] = "None"  # Register a new Gmail er khetre recovery None thakbe
+                user_temp_data[user_id]["recovery"] = "None"
                 
-                # Direct 2FA step-e niye jabe (Skip option thakbe na)
-                user_states[user_id] = "sub_awaiting_2fa"
+                markup = InlineKeyboardMarkup()
+                markup.add(InlineKeyboardButton("🔐 Enable 2FA", callback_data="reg_enable_2fa"))
+                markup.add(InlineKeyboardButton("▶️ How to enable 2FA", callback_data="reg_how_to_2fa"))
+                markup.add(InlineKeyboardButton("❌ Cancel Registration", callback_data="reg_cancel"))
                 
-                markup = ReplyKeyboardMarkup(resize_keyboard=True, selective=True)
-                markup.add(KeyboardButton("🚫 Cancel registration"))
-                bot.send_message(user_id, "🔐 Please send the **2FA QR Code screenshot** (or text secret key) to complete registration:", reply_markup=markup)
+                bot.send_message(user_id, "Choose an option below to proceed with your registration:", reply_markup=markup)
                 return
 
         if user_id in user_states:
@@ -507,7 +510,6 @@ def handle_message(message):
             elif state == "sub_awaiting_2fa":
                 two_fa_val = "None"
                 
-                # Register a new Gmail er khetre 2FA skip ba None kora jabe na (oboshshoi dite hobe)
                 is_register_flow = user_temp_data.get(user_id, {}).get("account_type") == "New Gmail" and "assigned_email" in user_temp_data.get(user_id, {})
                 
                 if message.content_type == 'photo':
@@ -729,6 +731,38 @@ def callback_listener(call):
             bot.answer_callback_query(call.id)
             bot.send_message(ADMIN_ID, "💵 Please send the **Custom Price / Amount** (e.g. 0.30 or 0.50) to add to user's balance:")
             
+        elif call.data == "reg_enable_2fa":
+            bot.answer_callback_query(call.id)
+            user_states[user_id] = "sub_awaiting_2fa"
+            
+            markup = ReplyKeyboardMarkup(resize_keyboard=True, selective=True)
+            markup.add(KeyboardButton("🚫 Cancel registration"))
+            bot.send_message(user_id, "🔐 Please send the **2FA QR Code screenshot** (or text secret key) to complete registration:", reply_markup=markup)
+            
+        elif call.data == "reg_how_to_2fa":
+            bot.answer_callback_query(call.id)
+            try:
+                bot.send_video(user_id, HOW_TO_2FA_VIDEO, caption="▶️ **How to enable 2FA Guide Video**\n\nWatch this video to learn how to enable 2FA and get the QR code.", parse_mode="Markdown")
+            except Exception:
+                bot.send_message(user_id, f"▶️ **How to enable 2FA Guide:**\n{HOW_TO_2FA_VIDEO}")
+            
+        elif call.data == "reg_cancel":
+            conn = get_db()
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM assigned_gmails WHERE user_id = %s AND status = 'assigned'", (user_id,))
+            conn.commit()
+            cursor.close()
+            conn.close()
+            
+            user_states.pop(user_id, None)
+            user_temp_data.pop(user_id, None)
+            bot.answer_callback_query(call.id, "Registration cancelled.")
+            try:
+                bot.edit_message_text(chat_id=user_id, message_id=call.message.message_id, text="❌ Registration has been cancelled.", reply_markup=None)
+            except:
+                pass
+            bot.send_message(user_id, "Main Menu:", reply_markup=main_menu())
+            
         elif call.data == "btn_done" or call.data.startswith("btn_done_"):
             email = None
             if user_id in user_temp_data and "assigned_email" in user_temp_data[user_id]:
@@ -765,13 +799,13 @@ def callback_listener(call):
             user_temp_data[user_id]["account_type"] = "New Gmail"
             user_temp_data[user_id]["recovery"] = "None"
             
-            # Direct 2FA step-e niye jabe (Skip option thakbe na)
-            user_states[user_id] = "sub_awaiting_2fa"
-            bot.answer_callback_query(call.id, "Please provide 2FA!")
+            bot.answer_callback_query(call.id)
+            markup = InlineKeyboardMarkup()
+            markup.add(InlineKeyboardButton("🔐 Enable 2FA", callback_data="reg_enable_2fa"))
+            markup.add(InlineKeyboardButton("▶️ How to enable 2FA", callback_data="reg_how_to_2fa"))
+            markup.add(InlineKeyboardButton("❌ Cancel Registration", callback_data="reg_cancel"))
             
-            markup = ReplyKeyboardMarkup(resize_keyboard=True, selective=True)
-            markup.add(KeyboardButton("🚫 Cancel registration"))
-            bot.send_message(user_id, "🔐 Please send the **2FA QR Code screenshot** (or text secret key) to complete registration:", reply_markup=markup)
+            bot.send_message(user_id, "Choose an option below to proceed with your registration:", reply_markup=markup)
             return
             
         elif call.data.startswith("app_") or call.data.startswith("rej_") or call.data.startswith("cancelapp_"):
