@@ -929,28 +929,41 @@ def callback_listener(call):
                 bot.answer_callback_query(call.id)
                 bot.edit_message_text(chat_id=ADMIN_ID, message_id=call.message.message_id, text=call.message.text + f"\n\n👉 **Status:** Rejected clicked! Now send the **Reject Reason (Text or Photo with caption)** in chat for user `{target_user_id}`:", parse_mode="Markdown")
 
-        elif call.data == "admin_view_pending":
+        elif call.data.startswith("admin_pending_") or call.data == "admin_view_pending":
             if call.from_user.id != ADMIN_ID:
                 bot.answer_callback_query(call.id, "Unauthorized!", show_alert=True)
                 return
             
+            offset = 0
+            if call.data.startswith("admin_pending_"):
+                try:
+                    offset = int(call.data.split("_")[2])
+                except:
+                    offset = 0
+
             conn = get_db()
             cursor = conn.cursor()
             try:
-                # ডেটাবেজ থেকে সমস্ত পেন্ডিং টাস্ক ফেচ করা হচ্ছে
-                cursor.execute("SELECT id, user_id, email, password, recovery, two_fa, account_type FROM pending_tasks WHERE status = 'pending' ORDER BY id ASC")
+                cursor.execute("SELECT id, user_id, email, password, recovery, two_fa, account_type FROM pending_tasks WHERE status = 'pending' ORDER BY id ASC LIMIT 5 OFFSET %s", (offset,))
                 rows = cursor.fetchall()
+                
+                cursor.execute("SELECT COUNT(*) FROM pending_tasks WHERE status = 'pending'")
+                total_pending = cursor.fetchone()[0]
             except Exception as e:
                 print(f"Pending fetch error: {e}")
                 rows = []
+                total_pending = 0
             cursor.close()
             conn.close()
             
-            if not rows:
+            if not rows and offset == 0:
                 bot.answer_callback_query(call.id, "No pending tasks found!", show_alert=True)
                 return
+            elif not rows:
+                bot.answer_callback_query(call.id, "No more pending tasks!", show_alert=True)
+                return
                 
-            bot.answer_callback_query(call.id, f"Loading {len(rows)} pending tasks...")
+            bot.answer_callback_query(call.id, f"Showing tasks {offset+1} to {offset+len(rows)} of {total_pending}")
             
             for r in rows:
                 try:
@@ -987,6 +1000,20 @@ def callback_listener(call):
                     time.sleep(0.3)
                 except Exception as ex:
                     print(f"Send pending message error: {ex}")
+
+            if offset + 5 < total_pending:
+                next_offset = offset + 5
+                nav_markup = InlineKeyboardMarkup()
+                nav_markup.add(InlineKeyboardButton("➡️ Next 5 Tasks", callback_data=f"admin_pending_{next_offset}"))
+                
+                try:
+                    bot.send_message(
+                        ADMIN_ID,
+                        f"📄 **Page info:** Showing tasks {offset+1} - {offset+len(rows)} out of {total_pending}\nClick below to load next tasks:",
+                        reply_markup=nav_markup
+                    )
+                except Exception as e:
+                    print(f"Nav send error: {e}")
 
         elif call.data == "btn_cancel":
             conn = get_db()
