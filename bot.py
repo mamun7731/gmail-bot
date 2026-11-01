@@ -630,7 +630,8 @@ def handle_message(message):
                 sent = 0
                 for u in all_users:
                     try:
-                        bot.send_message(u[0], f"📢 **Broadcast Message:**\n\n{text}", parse_mode="Markdown")
+                        # parse_mode=None দেওয়া হলো যাতে লিংকের আন্ডারস্কোর (_) নষ্ট না হয়
+                        bot.send_message(u[0], f"📢 **Broadcast Message:**\n\n{text}", parse_mode=None)
                         sent += 1
                     except:
                         pass
@@ -933,13 +934,21 @@ def callback_listener(call):
                 return
             conn = get_db()
             cursor = conn.cursor()
-            cursor.execute("SELECT id, user_id, email, password, recovery, two_fa, account_type FROM pending_tasks WHERE status = 'pending' LIMIT 5")
-            rows = cursor.fetchall()
+            try:
+                cursor.execute("SELECT id, user_id, email, password, recovery, two_fa, account_type FROM pending_tasks WHERE status = 'pending' LIMIT 10")
+                rows = cursor.fetchall()
+            except Exception as e:
+                conn.rollback()
+                cursor.execute("SELECT id, user_id, email, password, status FROM pending_tasks WHERE status = 'pending' LIMIT 10")
+                r_rows = cursor.fetchall()
+                rows = [(r[0], r[1], r[2], r[3], "None", "None", "New Gmail") for r in r_rows]
             cursor.close()
             conn.close()
+            
             if not rows:
-                bot.answer_callback_query(call.id, "No pending tasks found!")
+                bot.answer_callback_query(call.id, "No pending tasks found!", show_alert=True)
                 return
+                
             bot.answer_callback_query(call.id, "Showing pending tasks:")
             for r in rows:
                 t_id, u_id, email, pwd, recovery, two_fa, acc_type = r[0], r[1], r[2], r[3], r[4], r[5], r[6]
