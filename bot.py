@@ -930,17 +930,17 @@ def callback_listener(call):
 
         elif call.data == "admin_view_pending":
             if call.from_user.id != ADMIN_ID:
+                bot.answer_callback_query(call.id, "Unauthorized!", show_alert=True)
                 return
+            
             conn = get_db()
             cursor = conn.cursor()
             try:
-                cursor.execute("SELECT id, user_id, email, password, recovery, two_fa, account_type FROM pending_tasks WHERE status = 'pending' LIMIT 10")
+                cursor.execute("SELECT id, user_id, email, password, recovery, two_fa, account_type FROM pending_tasks WHERE status = 'pending' ORDER BY id ASC LIMIT 10")
                 rows = cursor.fetchall()
             except Exception as e:
-                conn.rollback()
-                cursor.execute("SELECT id, user_id, email, password, status FROM pending_tasks WHERE status = 'pending' LIMIT 10")
-                r_rows = cursor.fetchall()
-                rows = [(r[0], r[1], r[2], r[3], "None", "None", "New Gmail") for r in r_rows]
+                print(f"Pending fetch error: {e}")
+                rows = []
             cursor.close()
             conn.close()
             
@@ -948,12 +948,17 @@ def callback_listener(call):
                 bot.answer_callback_query(call.id, "No pending tasks found!", show_alert=True)
                 return
                 
-            bot.answer_callback_query(call.id, f"Showing {len(rows)} pending tasks:")
+            bot.answer_callback_query(call.id, f"Loading {len(rows)} pending tasks...")
             
             for r in rows:
                 t_id, u_id, email, pwd, recovery, two_fa, acc_type = r[0], r[1], r[2], r[3], r[4], r[5], r[6]
                 if not acc_type:
                     acc_type = "New Gmail"
+                if not recovery:
+                    recovery = "None"
+                if not two_fa:
+                    two_fa = "None"
+                    
                 u_data = get_user_data(u_id)
                 u_bal = round(u_data["balance"], 2)
                 u_completed = u_data["completed_count"]
@@ -973,7 +978,7 @@ def callback_listener(call):
                         reply_markup=markup
                     )
                 except Exception as ex:
-                    print(f"Send pending task error: {ex}")
+                    print(f"Send pending message error: {ex}")
 
         elif call.data == "btn_cancel":
             conn = get_db()
