@@ -936,7 +936,8 @@ def callback_listener(call):
             conn = get_db()
             cursor = conn.cursor()
             try:
-                cursor.execute("SELECT id, user_id, email, password, recovery, two_fa, account_type FROM pending_tasks WHERE status = 'pending' ORDER BY id ASC LIMIT 10")
+                # LIMIT 10 তুলে দেওয়া হয়েছে যাতে সব কটি পেন্ডিং টাস্ক একসাথে দেখতে পাওয়া যায়
+                cursor.execute("SELECT id, user_id, email, password, recovery, two_fa, account_type FROM pending_tasks WHERE status = 'pending' ORDER BY id ASC")
                 rows = cursor.fetchall()
             except Exception as e:
                 print(f"Pending fetch error: {e}")
