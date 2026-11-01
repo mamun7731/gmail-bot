@@ -959,18 +959,6 @@ def callback_listener(call):
                 u_bal = round(u_data["balance"], 2)
                 u_completed = u_data["completed_count"]
                 
-                # Safe fallback if bot.get_chat fails
-                p_name = "User"
-                p_username = f"ID: {u_id}"
-                try:
-                    chat_info = bot.get_chat(u_id)
-                    if chat_info.first_name:
-                        p_name = chat_info.first_name
-                    if chat_info.username:
-                        p_username = f"@{chat_info.username}"
-                except:
-                    pass
-                
                 markup = InlineKeyboardMarkup()
                 markup.add(
                     InlineKeyboardButton("✅ Approve ($0.15)", callback_data=f"app_{t_id}_{u_id}"),
@@ -981,7 +969,7 @@ def callback_listener(call):
                 try:
                     bot.send_message(
                         ADMIN_ID,
-                        f"🔔 **Pending Task ({acc_type})!**\n\n👤 Name: {p_name}\n🔗 Username: {p_username}\n🆔 User ID: `{u_id}`\n💰 Balance: ${u_bal}\n✅ Approved Gmails: {u_completed}\n\n📂 Type: **{acc_type}**\n📧 Email: `{email}`\n🔑 Password: `{pwd}`\n🔄 Recovery: `{recovery}`\n🔐 2FA Key: `{two_fa}`\n\n📋 **Format:** `{email}:{password}::{two_fa}`",
+                        f"🔔 **New Pending Task ({acc_type})!**\n\n🆔 User ID: `{u_id}`\n💰 Balance: ${u_bal}\n✅ Approved Gmails: {u_completed}\n\n📂 Type: **{acc_type}**\n📧 Email: `{email}`\n🔑 Password: `{pwd}`\n🔄 Recovery: `{recovery}`\n🔐 2FA Key: `{two_fa}`\n\n📋 **Format:** `{email}:{password}::{two_fa}`",
                         parse_mode="Markdown",
                         reply_markup=markup
                     )
