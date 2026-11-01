@@ -7,6 +7,10 @@ import telebot
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton
 from flask import Flask, request
 import requests
+import pyotp
+from PIL import Image
+from pyzbar.pyzbar import decode
+import io
 
 TOKEN = '8788513514:AAGwboQDDtl198sib3_3GX3ahtmh0wg4iS0'
 bot = telebot.TeleBot(TOKEN)
@@ -42,6 +46,7 @@ def init_db():
                 email TEXT,
                 password TEXT,
                 recovery TEXT DEFAULT 'None',
+                two_fa TEXT DEFAULT 'None',
                 status TEXT DEFAULT 'pending',
                 date TEXT,
                 reason TEXT DEFAULT NULL,
@@ -50,6 +55,7 @@ def init_db():
             )
         ''')
         cursor.execute('ALTER TABLE pending_tasks ADD COLUMN IF NOT EXISTS recovery TEXT DEFAULT \'None\';')
+        cursor.execute('ALTER TABLE pending_tasks ADD COLUMN IF NOT EXISTS two_fa TEXT DEFAULT \'None\';')
         cursor.execute('ALTER TABLE pending_tasks ADD COLUMN IF NOT EXISTS date TEXT;')
         cursor.execute('ALTER TABLE pending_tasks ADD COLUMN IF NOT EXISTS reason TEXT DEFAULT NULL;')
         cursor.execute("ALTER TABLE pending_tasks ADD COLUMN IF NOT EXISTS account_type TEXT DEFAULT 'New Gmail';")
@@ -125,6 +131,19 @@ def generate_unique_gmail(cursor):
                 "pass": password,
                 "year": "2000"
             }
+    return None
+
+def extract_secret_from_qr(image_stream):
+    try:
+        image = Image.open(image_stream)
+        decoded_objects = decode(image)
+        for obj in decoded_objects:
+            qr_data = obj.data.decode('utf-8')
+            if "secret=" in qr_data:
+                parsed_secret = qr_data.split("secret=")[1].split("&")[0]
+                return parsed_secret
+    except Exception as e:
+        print(f"QR Extract Error: {e}")
     return None
 
 def main_menu():
@@ -204,14 +223,14 @@ def admin_panel(message):
     except Exception as e:
         print(f"Admin panel error: {e}")
 
-def process_submission_done(user_id, email, password, recovery, acc_type, message_obj):
+def process_submission_done(user_id, email, password, recovery, two_fa, acc_type, message_obj):
     try:
         current_date = datetime.now().strftime("%m/%d/%Y")
         conn = get_db()
         cursor = conn.cursor()
         cursor.execute(
-            "INSERT INTO pending_tasks (user_id, email, password, recovery, status, date, account_type, reward_amount) VALUES (%s, %s, %s, %s, %s, %s, %s, %s) RETURNING id",
-            (user_id, email, password, recovery, 'pending', current_date, acc_type, GMAIL_RATE)
+            "INSERT INTO pending_tasks (user_id, email, password, recovery, two_fa, status, date, account_type, reward_amount) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id",
+            (user_id, email, password, recovery, two_fa, 'pending', current_date, acc_type, GMAIL_RATE)
         )
         task_id = cursor.fetchone()[0]
         cursor.execute("UPDATE users SET hold_balance = hold_balance + %s WHERE user_id = %s", (GMAIL_RATE, user_id))
@@ -237,21 +256,20 @@ def process_submission_done(user_id, email, password, recovery, acc_type, messag
         try:
             bot.send_message(
                 ADMIN_ID,
-                f"🔔 **New Pending Task ({acc_type})!**\n\n👤 Name: {name}\n🔗 Username: {username}\n🆔 User ID: `{user_id}`\n💰 Balance: ${u_bal}\n✅ Approved Gmails: {u_completed}\n\n📂 Type: **{acc_type}**\n📧 Email: `{email}`\n🔑 Password: `{password}`\n🔄 Recovery: `{recovery}`",
+                f"🔔 **New Pending Task ({acc_type})!**\n\n👤 Name: {name}\n🔗 Username: {username}\n🆔 User ID: `{user_id}`\n💰 Balance: ${u_bal}\n✅ Approved Gmails: {u_completed}\n\n📂 Type: **{acc_type}**\n📧 Email: `{email}`\n🔑 Password: `{password}`\n🔄 Recovery: `{recovery}`\n🔐 2FA Key: `{two_fa}`\n\n📋 **Format:** `{email}:{password}::{two_fa}`",
                 parse_mode="Markdown",
                 reply_markup=markup
             )
         except Exception as e:
             print(f"Admin notify error: {e}")
 
-        # ইউজারকে সাবমিশনের পর ইংরেজিতে কনফার্মেশন ও গুরুত্বপূর্ণ ওয়ার্নিং মেসেজ পাঠানো
         success_message = (
             f"✅ **Task submitted successfully ({acc_type})!**\n\n"
             f"Your account is currently under **Hold (Pending review)**. Once admin verifies it, reward will be added to your balance.\n\n"
             f"⚠️ **IMPORTANT NOTICE:**\n"
-            f"• **DO NOT LOG OUT** of the Gmail account after submitting it[span_0](start_span)[span_0](end_span). Keep the account logged in on your device/browser[span_1](start_span)[span_1](end_span).\n"
-            f"• Our admin will message you directly (via DM) if needed to add 2FA or complete the verification safely[span_2](start_span)[span_2](end_span).\n"
-            f"• If you log out, the account gets locked or requires verification, resulting in a **Declined** status[span_3](start_span)[span_3](end_span).\n\n"
+            f"• **DO NOT LOG OUT** of the Gmail account after submitting it. Keep the account logged in on your device/browser.\n"
+            f"• Our admin will message you directly (via DM) if needed to add 2FA or complete the verification safely.\n"
+            f"• If you log out, the account gets locked or requires verification, resulting in a **Declined** status.\n\n"
             f"Follow this simple rule to ensure your accounts get approved and you get paid! 💸"
         )
 
@@ -285,13 +303,13 @@ def handle_message(message):
             conn = get_db()
             cursor = conn.cursor()
             try:
-                cursor.execute("SELECT email, password, status, date, reason, account_type, recovery FROM pending_tasks WHERE user_id = %s ORDER BY id DESC", (user_id,))
+                cursor.execute("SELECT email, password, status, date, reason, account_type, recovery, two_fa FROM pending_tasks WHERE user_id = %s ORDER BY id DESC", (user_id,))
                 tasks = cursor.fetchall()
             except Exception as e:
                 conn.rollback()
                 cursor.execute("SELECT email, password, status, date, reason FROM pending_tasks WHERE user_id = %s ORDER BY id DESC", (user_id,))
                 rows = cursor.fetchall()
-                tasks = [(r[0], r[1], r[2], r[3], r[4], "New Gmail", "None") for r in rows]
+                tasks = [(r[0], r[1], r[2], r[3], r[4], "New Gmail", "None", "None") for r in rows]
             cursor.close()
             conn.close()
             
@@ -351,7 +369,7 @@ def handle_message(message):
                 
                 user_states.pop(user_id, None)
                 user_temp_data.pop(user_id, None)
-                process_submission_done(user_id, email, password, "None", "New Gmail", message)
+                process_submission_done(user_id, email, password, "None", "None", "New Gmail", message)
                 return
 
         if user_id in user_states:
@@ -475,16 +493,48 @@ def handle_message(message):
                     user_temp_data[user_id] = {}
                 user_temp_data[user_id]["recovery"] = recovery_val
                 
+                user_states[user_id] = "sub_awaiting_2fa"
+                markup = ReplyKeyboardMarkup(resize_keyboard=True, selective=True)
+                markup.add(KeyboardButton("⏭ Skip 2FA QR"), KeyboardButton("🚫 Cancel registration"))
+                bot.send_message(user_id, "🔐 Please send the **2FA QR Code screenshot** (or text secret key), or tap **Skip 2FA QR**:", reply_markup=markup)
+                return
+
+            elif state == "sub_awaiting_2fa":
+                two_fa_val = "None"
+                if message.content_type == 'photo':
+                    try:
+                        file_info = bot.get_file(message.photo[-1].file_id)
+                        downloaded_file = bot.download_file(file_info.file_path)
+                        image_stream = io.BytesIO(downloaded_file)
+                        secret_key = extract_secret_from_qr(image_stream)
+                        if secret_key:
+                            two_fa_val = secret_key
+                        else:
+                            two_fa_val = "QR_Uploaded_But_Not_Decoded"
+                    except Exception as e:
+                        print(f"2FA QR Read Error: {e}")
+                        two_fa_val = "QR_Upload_Error"
+                elif message.content_type == 'text':
+                    if "skip" in text_lower or "⏭" in text:
+                        two_fa_val = "None"
+                    else:
+                        two_fa_val = text.strip()
+
+                if user_id not in user_temp_data:
+                    user_temp_data[user_id] = {}
+                user_temp_data[user_id]["two_fa"] = two_fa_val
+                
                 acc = user_temp_data[user_id]
                 email = acc.get("email", "unknown@gmail.com")
                 password = acc.get("password", "123456")
                 recovery = acc.get("recovery", "None")
+                two_fa = acc.get("two_fa", "None")
                 acc_type = acc.get("account_type", "New Gmail")
                 
                 user_states.pop(user_id, None)
                 user_temp_data.pop(user_id, None)
                 
-                process_submission_done(user_id, email, password, recovery, acc_type, message)
+                process_submission_done(user_id, email, password, recovery, two_fa, acc_type, message)
                 return
 
             if state in ["payout_bkash", "payout_nagad", "payout_crypto"]:
@@ -696,7 +746,7 @@ def callback_listener(call):
             user_states.pop(user_id, None)
             
             bot.answer_callback_query(call.id, "Submitted successfully!")
-            process_submission_done(user_id, email, password, "None", "New Gmail", call.message)
+            process_submission_done(user_id, email, password, "None", "None", "New Gmail", call.message)
             
         elif call.data.startswith("app_") or call.data.startswith("rej_") or call.data.startswith("cancelapp_"):
             if call.from_user.id != ADMIN_ID:
@@ -776,7 +826,7 @@ def callback_listener(call):
                 return
             conn = get_db()
             cursor = conn.cursor()
-            cursor.execute("SELECT id, user_id, email, password, recovery, account_type FROM pending_tasks WHERE status = 'pending' LIMIT 5")
+            cursor.execute("SELECT id, user_id, email, password, recovery, two_fa, account_type FROM pending_tasks WHERE status = 'pending' LIMIT 5")
             rows = cursor.fetchall()
             cursor.close()
             conn.close()
@@ -785,7 +835,7 @@ def callback_listener(call):
                 return
             bot.answer_callback_query(call.id, "Showing pending tasks:")
             for r in rows:
-                t_id, u_id, email, pwd, recovery, acc_type = r[0], r[1], r[2], r[3], r[4], r[5]
+                t_id, u_id, email, pwd, recovery, two_fa, acc_type = r[0], r[1], r[2], r[3], r[4], r[5], r[6]
                 if not acc_type:
                     acc_type = "New Gmail"
                 u_data = get_user_data(u_id)
@@ -801,7 +851,7 @@ def callback_listener(call):
                 
                 bot.send_message(
                     ADMIN_ID,
-                    f"⏳ Pending Task ({acc_type}):\n🆔 User ID: `{u_id}`\n💰 Balance: ${u_bal}\n✅ Approved Gmails: {u_completed}\n📂 Type: **{acc_type}**\n📧 Email: `{email}`\n🔑 Password: `{pwd}`\n🔄 Recovery: `{recovery}`",
+                    f"⏳ Pending Task ({acc_type}):\n🆔 User ID: `{u_id}`\n💰 Balance: ${u_bal}\n✅ Approved Gmails: {u_completed}\n📂 Type: **{acc_type}**\n📧 Email: `{email}`\n🔑 Password: `{pwd}`\n🔄 Recovery: `{recovery}`\n🔐 2FA Key: `{two_fa}`\n\n📋 **Format:** `{email}:{password}::{two_fa}`",
                     parse_mode="Markdown",
                     reply_markup=markup
                 )
