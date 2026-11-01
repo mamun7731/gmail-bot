@@ -1,4 +1,4 @@
-pyzbar
+opencv-python-headless
 pillow
 pyotp
 psycopg2-binary
