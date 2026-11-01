@@ -546,20 +546,26 @@ def handle_message(message):
                 acc = user_temp_data[user_id]
                 email = acc.get("email", "unknown@gmail.com")
                 password = acc.get("password", "123456")
+                recovery = acc.get("recovery", "None")
                 two_fa = acc.get("two_fa", "None")
+                acc_type = acc.get("account_type", "New Gmail")
                 
-                # PyOTP দিয়ে লাইভ OTP Code জেনারেট করা
-                otp_code = "N/A"
-                if two_fa and two_fa != "None":
-                    try:
-                        totp = pyotp.TOTP(two_fa)
-                        otp_code = totp.now()
-                    except Exception as e:
-                        print(f"OTP Generation Error: {e}")
-
                 user_states.pop(user_id, None)
-                
-                # ইউজারের কাছে OTP Code এবং Done/Cancel ইনলাইন বাটন পাঠানো
+
+                # Submit my own ba 2FA skip korle direct task submit hobe
+                if not is_register_flow or two_fa == "None":
+                    user_temp_data.pop(user_id, None)
+                    process_submission_done(user_id, email, password, recovery, two_fa, acc_type, message)
+                    return
+
+                # Register a new Gmail ebong 2FA thakle OTP ebong Done/Cancel asbe
+                otp_code = "N/A"
+                try:
+                    totp = pyotp.TOTP(two_fa)
+                    otp_code = totp.now()
+                except Exception as e:
+                    print(f"OTP Generation Error: {e}")
+
                 user_verification_msg = (
                     f"📧 **Email:** `{email}`\n"
                     f"🔑 **Password:** `{password}`\n"
@@ -1009,4 +1015,3 @@ if __name__ == "__main__":
         app.run(host="0.0.0.0", port=port)
     except Exception as e:
         print(f"Webhook server error: {e}")
-
