@@ -630,7 +630,6 @@ def handle_message(message):
                 sent = 0
                 for u in all_users:
                     try:
-                        # parse_mode=None দেওয়া হলো যাতে লিংকের আন্ডারস্কোর (_) নষ্ট না হয়
                         bot.send_message(u[0], f"📢 **Broadcast Message:**\n\n{text}", parse_mode=None)
                         sent += 1
                     except:
