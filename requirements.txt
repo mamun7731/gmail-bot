@@ -1,4 +1,7 @@
-telebot
-flask
+pyzbar
+pillow
+pyotp
 psycopg2-binary
-gunicorn
+PyTelegramBotAPI
+Flask
+requests
