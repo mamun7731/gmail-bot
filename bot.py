@@ -266,14 +266,10 @@ def process_submission_done(user_id, email, password, recovery, two_fa, acc_type
         except Exception as e:
             print(f"Admin notify error: {e}")
 
+        # নোটিশ ছাড়াই সাধারণ সফল বার্তা
         success_message = (
             f"✅ **Task submitted successfully ({acc_type})!**\n\n"
-            f"Your account is currently under **Hold (Pending review)**. Once admin verifies it, reward will be added to your balance.\n\n"
-            f"⚠️ **IMPORTANT NOTICE:**\n"
-            f"• **DO NOT LOG OUT** of the Gmail account after submitting it. Keep the account logged in on your device/browser.\n"
-            f"• Our admin will message you directly (via DM) if needed to add 2FA or complete the verification safely.\n"
-            f"• If you log out, the account gets locked or requires verification, resulting in a **Declined** status.\n\n"
-            f"Follow this simple rule to ensure your accounts get approved and you get paid! 💸"
+            f"Your account is currently under **Hold (Pending review)**. Once admin verifies it, reward will be added to your balance. 💸"
         )
 
         bot.send_message(
@@ -370,9 +366,14 @@ def handle_message(message):
                 cursor.close()
                 conn.close()
                 
-                user_states.pop(user_id, None)
-                user_temp_data.pop(user_id, None)
-                process_submission_done(user_id, email, password, "None", "None", "New Gmail", message)
+                user_temp_data[user_id]["password"] = password
+                user_temp_data[user_id]["account_type"] = "New Gmail"
+                user_states[user_id] = "sub_awaiting_recovery"
+                
+                markup = ReplyKeyboardMarkup(resize_keyboard=True, selective=True)
+                markup.add(KeyboardButton("⏭ Skip recovery email"))
+                markup.add(KeyboardButton("🚫 Cancel registration"))
+                bot.send_message(user_id, "📧 Please enter your recovery email address, or tap **Skip** — it is optional:", parse_mode="Markdown", reply_markup=markup)
                 return
 
         if user_id in user_states:
@@ -745,11 +746,20 @@ def callback_listener(call):
             cursor.close()
             conn.close()
             
-            user_temp_data.pop(user_id, None)
-            user_states.pop(user_id, None)
+            if user_id not in user_temp_data:
+                user_temp_data[user_id] = {}
+            user_temp_data[user_id]["assigned_email"] = email
+            user_temp_data[user_id]["password"] = password
+            user_temp_data[user_id]["account_type"] = "New Gmail"
             
-            bot.answer_callback_query(call.id, "Submitted successfully!")
-            process_submission_done(user_id, email, password, "None", "None", "New Gmail", call.message)
+            user_states[user_id] = "sub_awaiting_recovery"
+            bot.answer_callback_query(call.id, "Please provide recovery and 2FA!")
+            
+            markup = ReplyKeyboardMarkup(resize_keyboard=True, selective=True)
+            markup.add(KeyboardButton("⏭ Skip recovery email"))
+            markup.add(KeyboardButton("🚫 Cancel registration"))
+            bot.send_message(user_id, "📧 Please enter your recovery email address, or tap **Skip** — it is optional:", parse_mode="Markdown", reply_markup=markup)
+            return
             
         elif call.data.startswith("app_") or call.data.startswith("rej_") or call.data.startswith("cancelapp_"):
             if call.from_user.id != ADMIN_ID:
