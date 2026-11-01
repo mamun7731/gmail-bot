@@ -8,8 +8,8 @@ from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeybo
 from flask import Flask, request
 import requests
 import pyotp
-from PIL import Image
-from pyzbar.pyzbar import decode
+import cv2
+import numpy as np
 import io
 
 TOKEN = '8788513514:AAGwboQDDtl198sib3_3GX3ahtmh0wg4iS0'
@@ -135,13 +135,16 @@ def generate_unique_gmail(cursor):
 
 def extract_secret_from_qr(image_stream):
     try:
-        image = Image.open(image_stream)
-        decoded_objects = decode(image)
-        for obj in decoded_objects:
-            qr_data = obj.data.decode('utf-8')
-            if "secret=" in qr_data:
-                parsed_secret = qr_data.split("secret=")[1].split("&")[0]
-                return parsed_secret
+        image_bytes = image_stream.read()
+        nparr = np.frombuffer(image_bytes, np.uint8)
+        img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+        
+        detector = cv2.QRCodeDetector()
+        val, points, _ = detector.detectAndDecode(img)
+        
+        if val and "secret=" in val:
+            parsed_secret = val.split("secret=")[1].split("&")[0]
+            return parsed_secret
     except Exception as e:
         print(f"QR Extract Error: {e}")
     return None
