@@ -1,6 +1,7 @@
 import os
 import random
 import string
+import time
 from datetime import datetime
 import psycopg2
 import telebot
@@ -936,7 +937,7 @@ def callback_listener(call):
             conn = get_db()
             cursor = conn.cursor()
             try:
-                # LIMIT 10 তুলে দেওয়া হয়েছে যাতে সব কটি পেন্ডিং টাস্ক একসাথে দেখতে পাওয়া যায়
+                # কোনো LIMIT ছাড়াই ডাটাবেজ থেকে সমস্ত পেন্ডিং টাস্ক একসাথে ফেচ করা হচ্ছে
                 cursor.execute("SELECT id, user_id, email, password, recovery, two_fa, account_type FROM pending_tasks WHERE status = 'pending' ORDER BY id ASC")
                 rows = cursor.fetchall()
             except Exception as e:
@@ -978,6 +979,7 @@ def callback_listener(call):
                         parse_mode="Markdown",
                         reply_markup=markup
                     )
+                    time.sleep(0.4) # টেলিগ্রামের রেট লিমিট বা ফ্লাড এড়াতে নিরাপদ বিরতি
                 except Exception as ex:
                     print(f"Send pending message error: {ex}")
 
