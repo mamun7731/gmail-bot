@@ -266,7 +266,6 @@ def process_submission_done(user_id, email, password, recovery, two_fa, acc_type
         except Exception as e:
             print(f"Admin notify error: {e}")
 
-        # নোটিশ ছাড়াই সাধারণ সফল বার্তা
         success_message = (
             f"✅ **Task submitted successfully ({acc_type})!**\n\n"
             f"Your account is currently under **Hold (Pending review)**. Once admin verifies it, reward will be added to your balance. 💸"
@@ -368,12 +367,14 @@ def handle_message(message):
                 
                 user_temp_data[user_id]["password"] = password
                 user_temp_data[user_id]["account_type"] = "New Gmail"
-                user_states[user_id] = "sub_awaiting_recovery"
+                user_temp_data[user_id]["recovery"] = "None"  # Register a new Gmail er khetre recovery None thakbe
+                
+                # Direct 2FA step-e niye jabe (Skip option thakbe na)
+                user_states[user_id] = "sub_awaiting_2fa"
                 
                 markup = ReplyKeyboardMarkup(resize_keyboard=True, selective=True)
-                markup.add(KeyboardButton("⏭ Skip recovery email"))
                 markup.add(KeyboardButton("🚫 Cancel registration"))
-                bot.send_message(user_id, "📧 Please enter your recovery email address, or tap **Skip** — it is optional:", parse_mode="Markdown", reply_markup=markup)
+                bot.send_message(user_id, "🔐 Please send the **2FA QR Code screenshot** (or text secret key) to complete registration:", reply_markup=markup)
                 return
 
         if user_id in user_states:
@@ -505,6 +506,10 @@ def handle_message(message):
 
             elif state == "sub_awaiting_2fa":
                 two_fa_val = "None"
+                
+                # Register a new Gmail er khetre 2FA skip ba None kora jabe na (oboshshoi dite hobe)
+                is_register_flow = user_temp_data.get(user_id, {}).get("account_type") == "New Gmail" and "assigned_email" in user_temp_data.get(user_id, {})
+                
                 if message.content_type == 'photo':
                     try:
                         file_info = bot.get_file(message.photo[-1].file_id)
@@ -520,9 +525,16 @@ def handle_message(message):
                         two_fa_val = "QR_Upload_Error"
                 elif message.content_type == 'text':
                     if "skip" in text_lower or "⏭" in text:
+                        if is_register_flow:
+                            bot.send_message(user_id, "❌ 2FA QR Code is mandatory for registered Gmails! Please send the QR screenshot or secret key (or cancel registration).")
+                            return
                         two_fa_val = "None"
                     else:
                         two_fa_val = text.strip()
+
+                if is_register_flow and two_fa_val in ["None", "QR_Upload_Error"]:
+                    bot.send_message(user_id, "❌ Please send a valid 2FA QR Code screenshot or text key to proceed!")
+                    return
 
                 if user_id not in user_temp_data:
                     user_temp_data[user_id] = {}
@@ -751,14 +763,15 @@ def callback_listener(call):
             user_temp_data[user_id]["assigned_email"] = email
             user_temp_data[user_id]["password"] = password
             user_temp_data[user_id]["account_type"] = "New Gmail"
+            user_temp_data[user_id]["recovery"] = "None"
             
-            user_states[user_id] = "sub_awaiting_recovery"
-            bot.answer_callback_query(call.id, "Please provide recovery and 2FA!")
+            # Direct 2FA step-e niye jabe (Skip option thakbe na)
+            user_states[user_id] = "sub_awaiting_2fa"
+            bot.answer_callback_query(call.id, "Please provide 2FA!")
             
             markup = ReplyKeyboardMarkup(resize_keyboard=True, selective=True)
-            markup.add(KeyboardButton("⏭ Skip recovery email"))
             markup.add(KeyboardButton("🚫 Cancel registration"))
-            bot.send_message(user_id, "📧 Please enter your recovery email address, or tap **Skip** — it is optional:", parse_mode="Markdown", reply_markup=markup)
+            bot.send_message(user_id, "🔐 Please send the **2FA QR Code screenshot** (or text secret key) to complete registration:", reply_markup=markup)
             return
             
         elif call.data.startswith("app_") or call.data.startswith("rej_") or call.data.startswith("cancelapp_"):
