@@ -927,65 +927,92 @@ def callback_listener(call):
                 bot.answer_callback_query(call.id)
                 bot.edit_message_text(chat_id=ADMIN_ID, message_id=call.message.message_id, text=call.message.text + f"\n\n👉 **Status:** Rejected clicked! Now send the **Reject Reason (Text or Photo with caption)** in chat for user `{target_user_id}`:", parse_mode="Markdown")
 
-        elif call.data == "admin_view_pending":
+        elif call.data.startswith("admin_pending_") or call.data == "admin_view_pending":
             if call.from_user.id != ADMIN_ID:
                 bot.answer_callback_query(call.id, "Unauthorized!", show_alert=True)
                 return
             
+            offset = 0
+            if call.data.startswith("admin_pending_"):
+                try:
+                    offset = int(call.data.split("_")[2])
+                except:
+                    offset = 0
+
             conn = get_db()
             cursor = conn.cursor()
             try:
-                # একদম প্রথম সারির মাত্র ১টি পেন্ডিং টাস্ক ফেচ করা হচ্ছে
-                cursor.execute("SELECT id, user_id, email, password, recovery, two_fa, account_type FROM pending_tasks WHERE status = 'pending' ORDER BY id ASC LIMIT 1")
-                row = cursor.fetchone()
+                cursor.execute("SELECT id, user_id, email, password, recovery, two_fa, account_type FROM pending_tasks WHERE status = 'pending' ORDER BY id ASC LIMIT 5 OFFSET %s", (offset,))
+                rows = cursor.fetchall()
                 
                 cursor.execute("SELECT COUNT(*) FROM pending_tasks WHERE status = 'pending'")
                 total_pending = cursor.fetchone()[0]
             except Exception as e:
                 print(f"Pending fetch error: {e}")
-                row = None
+                rows = []
                 total_pending = 0
             cursor.close()
             conn.close()
             
-            if not row:
+            if not rows and offset == 0:
                 bot.answer_callback_query(call.id, "No pending tasks found!", show_alert=True)
                 return
+            elif not rows:
+                bot.answer_callback_query(call.id, "No more pending tasks!", show_alert=True)
+                return
                 
-            bot.answer_callback_query(call.id, f"Showing 1 task (Total pending: {total_pending})")
+            bot.answer_callback_query(call.id, f"Showing tasks {offset+1} to {offset+len(rows)} of {total_pending}")
             
-            t_id, u_id, email, pwd, recovery, two_fa, acc_type = row[0], row[1], row[2], row[3], row[4], row[5], row[6]
-            if not acc_type:
-                acc_type = "New Gmail"
-            if not recovery:
-                recovery = "None"
-            if not two_fa:
-                two_fa = "None"
+            combined_text = f"📄 **Pending Tasks (Showing {offset+1} to {offset+len(rows)} of {total_pending})**\n\n"
+            page_markup = InlineKeyboardMarkup()
+            
+            for idx, r in enumerate(rows, start=offset+1):
+                try:
+                    t_id, u_id, email, pwd, recovery, two_fa, acc_type = r[0], r[1], r[2], r[3], r[4], r[5], r[6]
+                except Exception as ex:
+                    print(f"Row unpacking error: {ex}")
+                    continue
+
+                if not acc_type:
+                    acc_type = "New Gmail"
+                if not recovery:
+                    recovery = "None"
+                if not two_fa:
+                    two_fa = "None"
+                    
+                u_data = get_user_data(u_id)
+                u_bal = round(u_data["balance"], 2)
+                u_completed = u_data["completed_count"]
                 
-            u_data = get_user_data(u_id)
-            u_bal = round(u_data["balance"], 2)
-            u_completed = u_data["completed_count"]
-            
-            markup = InlineKeyboardMarkup()
-            markup.add(
-                InlineKeyboardButton("✅ Approve ($0.15)", callback_data=f"app_{t_id}_{u_id}"),
-                InlineKeyboardButton("💵 Custom Price", callback_data=f"customapp_{t_id}_{u_id}")
-            )
-            markup.add(InlineKeyboardButton("❌ Reject", callback_data=f"rej_{t_id}_{u_id}"))
-            
-            # যদি আরও টাস্ক বাকি থাকে, তাহলে নিচে আরেকটি বাটন দেওয়া যেতে পারে যাতে পরের টাস্কে যাওয়া যায়
-            if total_pending > 1:
-                markup.add(InlineKeyboardButton("➡️ Next Task", callback_data="admin_view_pending"))
+                combined_text += (
+                    f"━━━━━━━━━━━━━━━━━━\n"
+                    f"📌 **Task #{idx} ({acc_type})**\n"
+                    f"🆔 User ID: `{u_id}` | Bal: `${u_bal}` | Done: `{u_completed}`\n"
+                    f"📧 Email: `{email}`\n"
+                    f"🔑 Password: `{pwd}`\n"
+                    f"🔄 Recovery: `{recovery}`\n"
+                    f"🔐 2FA: `{two_fa}`\n"
+                )
+                
+                page_markup.add(
+                    InlineKeyboardButton(f"✅ App (#{idx})", callback_data=f"app_{t_id}_{u_id}"),
+                    InlineKeyboardButton(f"💵 Custom (#{idx})", callback_data=f"customapp_{t_id}_{u_id}"),
+                    InlineKeyboardButton(f"❌ Rej (#{idx})", callback_data=f"rej_{t_id}_{u_id}")
+                )
+
+            if offset + 5 < total_pending:
+                next_offset = offset + 5
+                page_markup.add(InlineKeyboardButton("➡️ Next 5 Tasks", callback_data=f"admin_pending_{next_offset}"))
 
             try:
                 bot.send_message(
                     ADMIN_ID,
-                    f"🔔 **Pending Task (1 of {total_pending}) - {acc_type}**\n\n🆔 User ID: `{u_id}`\n💰 Balance: ${u_bal}\n✅ Approved Gmails: {u_completed}\n\n📂 Type: **{acc_type}**\n📧 Email: `{email}`\n🔑 Password: `{pwd}`\n🔄 Recovery: `{recovery}`\n🔐 2FA Key: `{two_fa}`\n\n📋 **Format:** `{email}:{password}::{two_fa}`",
+                    combined_text,
                     parse_mode="Markdown",
-                    reply_markup=markup
+                    reply_markup=page_markup
                 )
             except Exception as ex:
-                print(f"Send pending message error: {ex}")
+                print(f"Send combined message error: {ex}")
 
         elif call.data == "btn_cancel":
             conn = get_db()
@@ -1007,7 +1034,7 @@ def callback_listener(call):
             user_states[user_id] = "awaiting_broadcast"
             bot.send_message(ADMIN_ID, "📢 Please send the broadcast message to send to all users:")
     except Exception as e:
-        print(f"callback_listener_error: {e}")
+        print(f"callback_listener error: {e}")
 
 # Flask Web Server & Webhook Handler
 app = Flask(__name__)
