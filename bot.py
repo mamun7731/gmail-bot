@@ -521,7 +521,7 @@ def handle_message(message):
                         if secret_key:
                             two_fa_val = secret_key
                         else:
-                            bot.send_message(user_id, "❌ QR Code scan করা যায়নি! অনুগ্রহ করে পরিষ্কার স্ক্রিনশট পাঠান অথবা টেক্সট সিক্রেট কি দিন።")
+                            bot.send_message(user_id, "❌ QR Code scan করা যায়নি! অনুগ্রহ করে পরিষ্কার স্ক্রিনশট পাঠান অথবা টেক্সট সিক্রেট কি দিন।")
                             return
                     except Exception as e:
                         print(f"2FA QR Read Error: {e}")
@@ -995,7 +995,7 @@ def callback_listener(call):
                         parse_mode="Markdown",
                         reply_markup=markup
                     )
-                    time.sleep(0.4)
+                    time.sleep(0.6)
                 except Exception as ex:
                     print(f"Send task message error: {ex}")
 
@@ -1005,9 +1005,10 @@ def callback_listener(call):
                 nav_markup.add(InlineKeyboardButton("➡️ Next 5 Tasks", callback_data=f"admin_pending_{next_offset}"))
                 
                 try:
+                    time.sleep(0.4)
                     bot.send_message(
                         ADMIN_ID,
-                        f"📄 **Page info:** Showing tasks {offset+1} - {offset+len(rows)} out of {total_pending}\nClick below to load next tasks:",
+                        f"📄 **Page info:** Showing tasks {offset+1} - {offset+len(rows)} of {total_pending}\nClick below to load next tasks:",
                         parse_mode="Markdown",
                         reply_markup=nav_markup
                     )
