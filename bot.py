@@ -995,7 +995,7 @@ def callback_listener(call):
                         parse_mode="Markdown",
                         reply_markup=markup
                     )
-                    time.sleep(1.0)
+                    time.sleep(1.2)
                 except Exception as ex:
                     print(f"Send task message error: {ex}")
 
