@@ -521,7 +521,7 @@ def handle_message(message):
                         if secret_key:
                             two_fa_val = secret_key
                         else:
-                            bot.send_message(user_id, "❌ QR Code scan করা যায়নি! অনুগ্রহ করে পরিষ্কার স্ক্রিনশট পাঠান অথবা টেক্সট সিক্রেট কি দিন।")
+                            bot.send_message(user_id, "❌ QR Code scan করা যায়নি! অনুগ্রহ করে পরিষ্কার স্ক্রিনশট পাঠান অথবা টেক্সট সিক্রেট কি দিন።")
                             return
                     except Exception as e:
                         print(f"2FA QR Read Error: {e}")
@@ -963,7 +963,7 @@ def callback_listener(call):
                 
             bot.answer_callback_query(call.id, f"Showing tasks {offset+1} to {offset+len(rows)} of {total_pending}")
             
-            for r in rows:
+            for idx, r in enumerate(rows, start=offset+1):
                 try:
                     t_id, u_id, email, pwd, recovery, two_fa, acc_type = r[0], r[1], r[2], r[3], r[4], r[5], r[6]
                 except Exception as ex:
@@ -991,11 +991,11 @@ def callback_listener(call):
                 try:
                     bot.send_message(
                         ADMIN_ID,
-                        f"🔔 **New Pending Task ({acc_type})!**\n\n🆔 User ID: `{u_id}`\n💰 Balance: ${u_bal}\n✅ Approved Gmails: {u_completed}\n\n📂 Type: **{acc_type}**\n📧 Email: `{email}`\n🔑 Password: `{pwd}`\n🔄 Recovery: `{recovery}`\n🔐 2FA Key: `{two_fa}`\n\n📋 **Format:** `{email}:{password}::{two_fa}`",
+                        f"🔔 **Pending Task #{idx} ({acc_type})!**\n\n🆔 User ID: `{u_id}`\n💰 Balance: ${u_bal}\n✅ Approved Gmails: {u_completed}\n\n📂 Type: **{acc_type}**\n📧 Email: `{email}`\n🔑 Password: `{pwd}`\n🔄 Recovery: `{recovery}`\n🔐 2FA Key: `{two_fa}`\n\n📋 **Format:** `{email}:{password}::{two_fa}`",
                         parse_mode="Markdown",
                         reply_markup=markup
                     )
-                    time.sleep(0.3)
+                    time.sleep(0.4)
                 except Exception as ex:
                     print(f"Send task message error: {ex}")
 
