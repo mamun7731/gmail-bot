@@ -218,7 +218,7 @@ def admin_panel(message):
         total_bal = round(stats[1] or 0.0, 2)
         
         markup = InlineKeyboardMarkup()
-        markup.add(InlineKeyboardButton(f"🔔 Pending Approvals ({pending_count})", callback_data="admin_pending_0"))
+        markup.add(InlineKeyboardButton(f"🔔 Pending Approvals ({pending_count})", callback_data="admin_view_pending"))
         markup.add(InlineKeyboardButton("📢 Broadcast Message", callback_data="admin_broadcast"))
         
         bot.send_message(
@@ -244,6 +244,10 @@ def process_submission_done(user_id, email, password, recovery, two_fa, acc_type
         conn.commit()
         cursor.close()
         conn.close()
+        
+        user_info = message_obj.from_user
+        name = user_info.first_name or "Unknown"
+        username = f"@{user_info.username}" if user_info.username else "No Username"
         
         u_data = get_user_data(user_id)
         u_bal = round(u_data["balance"], 2)
@@ -884,8 +888,10 @@ def callback_listener(call):
                 cursor.close()
                 conn.close()
                 
+                markup = InlineKeyboardMarkup()
+                markup.add(InlineKeyboardButton("❌ Cancel Approval (Revoke)", callback_data=f"cancelapp_{task_id}_{target_user_id}"))
                 bot.answer_callback_query(call.id, "Approved successfully!")
-                bot.edit_message_text(chat_id=call.message.chat.id, message_id=call.message.message_id, text=call.message.text + f"\n\n✅ **Status:** Task for `{email}` has been **APPROVED**.", parse_mode="Markdown")
+                bot.edit_message_text(chat_id=call.message.chat.id, message_id=call.message.message_id, text=call.message.text + f"\n\n✅ **Status:** Task for `{email}` has been **APPROVED**.", reply_markup=markup)
                 try:
                     bot.send_message(target_user_id, f"🎉 Good news! Your Gmail account ({email}) has been approved. +${GMAIL_RATE:.2f} added to your balance!")
                 except:
@@ -921,15 +927,17 @@ def callback_listener(call):
                 bot.answer_callback_query(call.id)
                 bot.edit_message_text(chat_id=ADMIN_ID, message_id=call.message.message_id, text=call.message.text + f"\n\n👉 **Status:** Rejected clicked! Now send the **Reject Reason (Text or Photo with caption)** in chat for user `{target_user_id}`:", parse_mode="Markdown")
 
-        elif call.data.startswith("admin_pending_"):
+        elif call.data.startswith("admin_pending_") or call.data == "admin_view_pending":
             if call.from_user.id != ADMIN_ID:
                 bot.answer_callback_query(call.id, "Unauthorized!", show_alert=True)
                 return
             
-            try:
-                offset = int(call.data.split("_")[2])
-            except:
-                offset = 0
+            offset = 0
+            if call.data.startswith("admin_pending_"):
+                try:
+                    offset = int(call.data.split("_")[2])
+                except:
+                    offset = 0
 
             conn = get_db()
             cursor = conn.cursor()
@@ -955,10 +963,6 @@ def callback_listener(call):
                 
             bot.answer_callback_query(call.id, f"Showing tasks {offset+1} to {offset+len(rows)} of {total_pending}")
             
-            # পেজিনেশনের মাধ্যমে একটি সুন্দর একক মেসেজে ৫টি টাস্কের সম্পূর্ণ তথ্য এবং বাটনগুলো সাজানো হচ্ছে
-            text_content = f"📄 **Pending Tasks ({offset+1} - {offset+len(rows)} of {total_pending})**\n"
-            page_markup = InlineKeyboardMarkup()
-            
             for idx, r in enumerate(rows, start=offset+1):
                 try:
                     t_id, u_id, email, pwd, recovery, two_fa, acc_type = r[0], r[1], r[2], r[3], r[4], r[5], r[6]
@@ -977,47 +981,39 @@ def callback_listener(call):
                 u_bal = round(u_data["balance"], 2)
                 u_completed = u_data["completed_count"]
                 
-                text_content += (
-                    f"\n━━━━━━━━━━━━━━━━━━\n"
-                    f"🔔 **Task #{idx} ({acc_type})**\n"
-                    f"🆔 User ID: `{u_id}`\n"
-                    f"💰 Balance: ${u_bal} | ✅ Done: {u_completed}\n"
-                    f"📧 Email: `{email}`\n"
-                    f"🔑 Password: `{pwd}`\n"
-                    f"🔄 Recovery: `{recovery}`\n"
-                    f"🔐 2FA: `{two_fa}`\n"
-                    f"📋 **Format:** `{email}:{password}::{two_fa}`\n"
+                markup = InlineKeyboardMarkup()
+                markup.add(
+                    InlineKeyboardButton("✅ Approve ($0.15)", callback_data=f"app_{t_id}_{u_id}"),
+                    InlineKeyboardButton("💵 Custom Price", callback_data=f"customapp_{t_id}_{u_id}")
                 )
+                markup.add(InlineKeyboardButton("❌ Reject", callback_data=f"rej_{t_id}_{u_id}"))
                 
-                # প্রতিটি টাস্কের নিজস্ব Approve, Custom ও Reject বাটন
-                page_markup.add(
-                    InlineKeyboardButton(f"✅ App (#{idx})", callback_data=f"app_{t_id}_{u_id}"),
-                    InlineKeyboardButton(f"💵 Custom (#{idx})", callback_data=f"customapp_{t_id}_{u_id}"),
-                    InlineKeyboardButton(f"❌ Rej (#{idx})", callback_data=f"rej_{t_id}_{u_id}")
-                )
+                try:
+                    bot.send_message(
+                        ADMIN_ID,
+                        f"🔔 **Pending Task #{idx} ({acc_type})!**\n\n🆔 User ID: `{u_id}`\n💰 Balance: ${u_bal}\n✅ Approved Gmails: {u_completed}\n\n📂 Type: **{acc_type}**\n📧 Email: `{email}`\n🔑 Password: `{pwd}`\n🔄 Recovery: `{recovery}`\n🔐 2FA Key: `{two_fa}`\n\n📋 **Format:** `{email}:{password}::{two_fa}`",
+                        parse_mode="Markdown",
+                        reply_markup=markup
+                    )
+                    time.sleep(0.4)
+                except Exception as ex:
+                    print(f"Send task message error: {ex}")
 
-            # যদি আরও টাস্ক থাকে, তবে নিচে নেভিগেশন বাটন যোগ হবে
-            nav_buttons = []
-            if offset > 0:
-                prev_offset = max(0, offset - 5)
-                nav_buttons.append(InlineKeyboardButton("⬅️ Previous", callback_data=f"admin_pending_{prev_offset}"))
             if offset + 5 < total_pending:
                 next_offset = offset + 5
-                nav_buttons.append(InlineKeyboardButton("➡️ Next 5 Tasks", callback_data=f"admin_pending_{next_offset}"))
-            
-            if nav_buttons:
-                page_markup.row(*nav_buttons)
-
-            try:
-                bot.edit_message_text(
-                    chat_id=ADMIN_ID,
-                    message_id=call.message.message_id,
-                    text=text_content,
-                    parse_mode="Markdown",
-                    reply_markup=page_markup
-                )
-            except Exception as ex:
-                print(f"Edit message error: {ex}")
+                nav_markup = InlineKeyboardMarkup()
+                nav_markup.add(InlineKeyboardButton("➡️ Next 5 Tasks", callback_data=f"admin_pending_{next_offset}"))
+                
+                try:
+                    time.sleep(0.2)
+                    bot.send_message(
+                        ADMIN_ID,
+                        f"📄 **Page info:** Showing tasks {offset+1} - {offset+len(rows)} out of {total_pending}\nClick below to load next tasks:",
+                        parse_mode="Markdown",
+                        reply_markup=nav_markup
+                    )
+                except Exception as e:
+                    print(f"Nav send error: {e}")
 
         elif call.data == "btn_cancel":
             conn = get_db()
