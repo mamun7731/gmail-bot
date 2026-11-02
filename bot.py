@@ -995,7 +995,7 @@ def callback_listener(call):
                         parse_mode="Markdown",
                         reply_markup=markup
                     )
-                    time.sleep(0.6)
+                    time.sleep(1.0)
                 except Exception as ex:
                     print(f"Send task message error: {ex}")
 
@@ -1005,7 +1005,7 @@ def callback_listener(call):
                 nav_markup.add(InlineKeyboardButton("➡️ Next 5 Tasks", callback_data=f"admin_pending_{next_offset}"))
                 
                 try:
-                    time.sleep(0.4)
+                    time.sleep(0.5)
                     bot.send_message(
                         ADMIN_ID,
                         f"📄 **Page info:** Showing tasks {offset+1} - {offset+len(rows)} of {total_pending}\nClick below to load next tasks:",
