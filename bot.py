@@ -263,7 +263,7 @@ def process_submission_done(user_id, email, password, recovery, two_fa, acc_type
         try:
             bot.send_message(
                 ADMIN_ID,
-                f"🔔 **New Pending Task ({acc_type})!**\n\n👤 Name: {name}\n🔗 Username: {username}\n🆔 User ID: `{user_id}`\n💰 Balance: ${u_bal}\n✅ Approved Gmails: {u_completed}\n\n📂 Type: **{acc_type}**\n📧 Email: `{email}`\n🔑 Password: `{password}`\n🔄 Recovery: `{recovery}`\n🔐 2FA Key: `{two_fa}`\n\n📋 **Format:** `{email}:{password}::{two_fa}`",
+                f"🔔 **New Pending Task ({acc_type})!**\n\n🆔 User ID: `{user_id}`\n💰 Balance: ${u_bal}\n✅ Approved Gmails: {u_completed}\n\n📂 Type: **{acc_type}**\n📧 Email: `{email}`\n🔑 Password: `{password}`\n🔄 Recovery: `{recovery}`\n🔐 2FA Key: `{two_fa}`\n\n📋 **Format:** `{email}:{password}::{two_fa}`",
                 parse_mode="Markdown",
                 reply_markup=markup
             )
@@ -963,10 +963,7 @@ def callback_listener(call):
                 
             bot.answer_callback_query(call.id, f"Showing tasks {offset+1} to {offset+len(rows)} of {total_pending}")
             
-            combined_text = f"📄 **Pending Tasks (Showing {offset+1} to {offset+len(rows)} of {total_pending})**\n\n"
-            page_markup = InlineKeyboardMarkup()
-            
-            for idx, r in enumerate(rows, start=offset+1):
+            for r in rows:
                 try:
                     t_id, u_id, email, pwd, recovery, two_fa, acc_type = r[0], r[1], r[2], r[3], r[4], r[5], r[6]
                 except Exception as ex:
@@ -984,35 +981,38 @@ def callback_listener(call):
                 u_bal = round(u_data["balance"], 2)
                 u_completed = u_data["completed_count"]
                 
-                combined_text += (
-                    f"━━━━━━━━━━━━━━━━━━\n"
-                    f"📌 **Task #{idx} ({acc_type})**\n"
-                    f"🆔 User ID: `{u_id}` | Bal: `${u_bal}` | Done: `{u_completed}`\n"
-                    f"📧 Email: `{email}`\n"
-                    f"🔑 Password: `{pwd}`\n"
-                    f"🔄 Recovery: `{recovery}`\n"
-                    f"🔐 2FA: `{two_fa}`\n"
+                markup = InlineKeyboardMarkup()
+                markup.add(
+                    InlineKeyboardButton("✅ Approve ($0.15)", callback_data=f"app_{t_id}_{u_id}"),
+                    InlineKeyboardButton("💵 Custom Price", callback_data=f"customapp_{t_id}_{u_id}")
                 )
+                markup.add(InlineKeyboardButton("❌ Reject", callback_data=f"rej_{t_id}_{u_id}"))
                 
-                page_markup.add(
-                    InlineKeyboardButton(f"✅ App (#{idx})", callback_data=f"app_{t_id}_{u_id}"),
-                    InlineKeyboardButton(f"💵 Custom (#{idx})", callback_data=f"customapp_{t_id}_{u_id}"),
-                    InlineKeyboardButton(f"❌ Rej (#{idx})", callback_data=f"rej_{t_id}_{u_id}")
-                )
+                try:
+                    bot.send_message(
+                        ADMIN_ID,
+                        f"🔔 **New Pending Task ({acc_type})!**\n\n🆔 User ID: `{u_id}`\n💰 Balance: ${u_bal}\n✅ Approved Gmails: {u_completed}\n\n📂 Type: **{acc_type}**\n📧 Email: `{email}`\n🔑 Password: `{pwd}`\n🔄 Recovery: `{recovery}`\n🔐 2FA Key: `{two_fa}`\n\n📋 **Format:** `{email}:{password}::{two_fa}`",
+                        parse_mode="Markdown",
+                        reply_markup=markup
+                    )
+                    time.sleep(0.3)
+                except Exception as ex:
+                    print(f"Send task message error: {ex}")
 
             if offset + 5 < total_pending:
                 next_offset = offset + 5
-                page_markup.add(InlineKeyboardButton("➡️ Next 5 Tasks", callback_data=f"admin_pending_{next_offset}"))
-
-            try:
-                bot.send_message(
-                    ADMIN_ID,
-                    combined_text,
-                    parse_mode="Markdown",
-                    reply_markup=page_markup
-                )
-            except Exception as ex:
-                print(f"Send combined message error: {ex}")
+                nav_markup = InlineKeyboardMarkup()
+                nav_markup.add(InlineKeyboardButton("➡️ Next 5 Tasks", callback_data=f"admin_pending_{next_offset}"))
+                
+                try:
+                    bot.send_message(
+                        ADMIN_ID,
+                        f"📄 **Page info:** Showing tasks {offset+1} - {offset+len(rows)} out of {total_pending}\nClick below to load next tasks:",
+                        parse_mode="Markdown",
+                        reply_markup=nav_markup
+                    )
+                except Exception as e:
+                    print(f"Nav send error: {e}")
 
         elif call.data == "btn_cancel":
             conn = get_db()
