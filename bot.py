@@ -217,7 +217,6 @@ def admin_panel(message):
         total_bal = round(stats[1] or 0.0, 2)
         
         markup = InlineKeyboardMarkup()
-        # সরাসরি admin_pending_0 এ পাঠানো হচ্ছে যাতে ক্লিক করলেই টাস্কগুলো লোড হয়
         markup.add(InlineKeyboardButton(f"🔔 Pending Approvals ({pending_count})", callback_data="admin_pending_0"))
         markup.add(InlineKeyboardButton("📢 Broadcast Message", callback_data="admin_broadcast"))
         
@@ -249,15 +248,18 @@ def process_submission_done(user_id, email, password, recovery, two_fa, acc_type
         u_bal = round(u_data["balance"], 2)
         u_completed = u_data["completed_count"]
         
+        u_name = "Unknown"
+        u_username = "No Username"
         try:
             chat_member = bot.get_chat(user_id)
-            u_name = chat_member.first_name or "Unknown"
-            if chat_member.last_name:
-                u_name += f" {chat_member.last_name}"
-            u_username = f"@{chat_member.username}" if chat_member.username else "No Username"
-        except:
-            u_name = "Unknown"
-            u_username = "No Username"
+            if chat_member.first_name:
+                u_name = chat_member.first_name
+                if chat_member.last_name:
+                    u_name += f" {chat_member.last_name}"
+            if chat_member.username:
+                u_username = f"@{chat_member.username}"
+        except Exception as e:
+            print(f"Get chat error: {e}")
 
         markup = InlineKeyboardMarkup()
         markup.add(
@@ -998,15 +1000,18 @@ def callback_listener(call):
                 u_bal = round(u_data["balance"], 2)
                 u_completed = u_data["completed_count"]
                 
+                u_name = "Unknown"
+                u_username = "No Username"
                 try:
                     chat_member = bot.get_chat(u_id)
-                    u_name = chat_member.first_name or "Unknown"
-                    if chat_member.last_name:
-                        u_name += f" {chat_member.last_name}"
-                    u_username = f"@{chat_member.username}" if chat_member.username else "No Username"
-                except:
-                    u_name = "Unknown"
-                    u_username = "No Username"
+                    if chat_member.first_name:
+                        u_name = chat_member.first_name
+                        if chat_member.last_name:
+                            u_name += f" {chat_member.last_name}"
+                    if chat_member.username:
+                        u_username = f"@{chat_member.username}"
+                except Exception as e:
+                    print(f"Get chat error for user {u_id}: {e}")
                 
                 markup = InlineKeyboardMarkup()
                 markup.add(
