@@ -22,7 +22,6 @@ GMAIL_RATE = 0.15
 MIN_PAYOUT = 0.20
 REF_BONUS = 0.02
 
-# How to enable 2FA video link
 HOW_TO_2FA_VIDEO = "https://t.me/Gmail_Farmer2_0News/22"
 
 DATABASE_URL = "postgresql://postgres.ijussavmhziblqswfgwf:mamun347731@aws-0-ap-southeast-2.pooler.supabase.com:6543/postgres"
@@ -218,7 +217,8 @@ def admin_panel(message):
         total_bal = round(stats[1] or 0.0, 2)
         
         markup = InlineKeyboardMarkup()
-        markup.add(InlineKeyboardButton(f"🔔 Pending Approvals ({pending_count})", callback_data="admin_view_pending"))
+        # সরাসরি admin_pending_0 এ পাঠানো হচ্ছে যাতে ক্লিক করলেই টাস্কগুলো লোড হয়
+        markup.add(InlineKeyboardButton(f"🔔 Pending Approvals ({pending_count})", callback_data="admin_pending_0"))
         markup.add(InlineKeyboardButton("📢 Broadcast Message", callback_data="admin_broadcast"))
         
         bot.send_message(
