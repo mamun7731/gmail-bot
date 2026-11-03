@@ -245,13 +245,19 @@ def process_submission_done(user_id, email, password, recovery, two_fa, acc_type
         cursor.close()
         conn.close()
         
-        user_info = message_obj.from_user
-        name = user_info.first_name or "Unknown"
-        username = f"@{user_info.username}" if user_info.username else "No Username"
-        
         u_data = get_user_data(user_id)
         u_bal = round(u_data["balance"], 2)
         u_completed = u_data["completed_count"]
+        
+        try:
+            chat_member = bot.get_chat(user_id)
+            u_name = chat_member.first_name or "Unknown"
+            if chat_member.last_name:
+                u_name += f" {chat_member.last_name}"
+            u_username = f"@{chat_member.username}" if chat_member.username else "No Username"
+        except:
+            u_name = "Unknown"
+            u_username = "No Username"
 
         markup = InlineKeyboardMarkup()
         markup.add(
@@ -263,7 +269,18 @@ def process_submission_done(user_id, email, password, recovery, two_fa, acc_type
         try:
             bot.send_message(
                 ADMIN_ID,
-                f"🔔 **New Pending Task ({acc_type})!**\n\n🆔 User ID: `{user_id}`\n💰 Balance: ${u_bal}\n✅ Approved Gmails: {u_completed}\n\n📂 Type: **{acc_type}**\n📧 Email: `{email}`\n🔑 Password: `{password}`\n🔄 Recovery: `{recovery}`\n🔐 2FA Key: `{two_fa}`\n\n📋 **Format:** `{email}:{password}::{two_fa}`",
+                f"🔔 **New Pending Task ({acc_type})!**\n\n"
+                f"👤 Name: {u_name}\n"
+                f"🔗 Username: {u_username}\n"
+                f"🆔 User ID: `{user_id}`\n"
+                f"💰 Balance: ${u_bal}\n"
+                f"✅ Approved Gmails: {u_completed}\n\n"
+                f"📂 Type: **{acc_type}**\n"
+                f"📧 Email: `{email}`\n"
+                f"🔑 Password: `{password}`\n"
+                f"🔄 Recovery: `{recovery}`\n"
+                f"🔐 2FA Key: `{two_fa}`\n\n"
+                f"📋 **Format:** `{email}:{password}::{two_fa}`",
                 parse_mode="Markdown",
                 reply_markup=markup
             )
@@ -981,6 +998,16 @@ def callback_listener(call):
                 u_bal = round(u_data["balance"], 2)
                 u_completed = u_data["completed_count"]
                 
+                try:
+                    chat_member = bot.get_chat(u_id)
+                    u_name = chat_member.first_name or "Unknown"
+                    if chat_member.last_name:
+                        u_name += f" {chat_member.last_name}"
+                    u_username = f"@{chat_member.username}" if chat_member.username else "No Username"
+                except:
+                    u_name = "Unknown"
+                    u_username = "No Username"
+                
                 markup = InlineKeyboardMarkup()
                 markup.add(
                     InlineKeyboardButton("✅ Approve ($0.15)", callback_data=f"app_{t_id}_{u_id}"),
@@ -991,7 +1018,18 @@ def callback_listener(call):
                 try:
                     bot.send_message(
                         ADMIN_ID,
-                        f"🔔 **Pending Task #{idx} ({acc_type})!**\n\n🆔 User ID: `{u_id}`\n💰 Balance: ${u_bal}\n✅ Approved Gmails: {u_completed}\n\n📂 Type: **{acc_type}**\n📧 Email: `{email}`\n🔑 Password: `{pwd}`\n🔄 Recovery: `{recovery}`\n🔐 2FA Key: `{two_fa}`\n\n📋 **Format:** `{email}:{password}::{two_fa}`",
+                        f"🔔 **Pending Task #{idx} ({acc_type})!**\n\n"
+                        f"👤 Name: {u_name}\n"
+                        f"🔗 Username: {u_username}\n"
+                        f"🆔 User ID: `{u_id}`\n"
+                        f"💰 Balance: ${u_bal}\n"
+                        f"✅ Approved Gmails: {u_completed}\n\n"
+                        f"📂 Type: **{acc_type}**\n"
+                        f"📧 Email: `{email}`\n"
+                        f"🔑 Password: `{pwd}`\n"
+                        f"🔄 Recovery: `{recovery}`\n"
+                        f"🔐 2FA Key: `{two_fa}`\n\n"
+                        f"📋 **Format:** `{email}:{password}::{two_fa}`",
                         parse_mode="Markdown",
                         reply_markup=markup
                     )
