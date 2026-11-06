@@ -378,33 +378,6 @@ def handle_message(message):
                 bot.send_message(user_id, "📁 You have not submitted any accounts yet.", reply_markup=main_menu())
             return
 
-        if "done" in text_lower or "✔" in text:
-            if user_id in user_temp_data and "assigned_email" in user_temp_data[user_id]:
-                email = user_temp_data[user_id]["assigned_email"]
-                prefix = email.split('@')[0]
-                letters = "".join([c for c in prefix if c.isalpha()])
-                numbers = "".join([c for c in prefix if c.isdigit()])
-                password = f"{letters[:3].capitalize()}#{numbers}Xk"
-                
-                conn = get_db()
-                cursor = conn.cursor()
-                cursor.execute("UPDATE assigned_gmails SET status = 'submitted' WHERE email = %s", (email,))
-                conn.commit()
-                cursor.close()
-                conn.close()
-                
-                user_temp_data[user_id]["password"] = password
-                user_temp_data[user_id]["account_type"] = "New Gmail"
-                user_temp_data[user_id]["recovery"] = "None"
-                
-                markup = InlineKeyboardMarkup()
-                markup.add(InlineKeyboardButton("🔐 Enable 2FA", callback_data="reg_enable_2fa"))
-                markup.add(InlineKeyboardButton("▶️ How to enable 2FA", callback_data="reg_how_to_2fa"))
-                markup.add(InlineKeyboardButton("❌ Cancel Registration", callback_data="reg_cancel"))
-                
-                bot.send_message(user_id, "Choose an option below to proceed with your registration:", reply_markup=markup)
-                return
-
         if user_id in user_states:
             state = user_states[user_id]
             
@@ -681,7 +654,13 @@ def handle_message(message):
             cursor.close()
             conn.close()
             
-            user_temp_data[user_id] = {"assigned_email": email}
+            user_temp_data[user_id] = {
+                "assigned_email": email,
+                "email": email,
+                "password": selected_acc['pass'],
+                "account_type": "New Gmail",
+                "recovery": "None"
+            }
             
             response_text = (
                 f"Register Gmail account using the specified data and get ${GMAIL_RATE:.2f}\n\n"
@@ -821,7 +800,7 @@ def callback_listener(call):
                 
             if user_id in user_temp_data:
                 acc = user_temp_data[user_id]
-                email = acc.get("email", "unknown@gmail.com")
+                email = acc.get("email") or acc.get("assigned_email", "unknown@gmail.com")
                 password = acc.get("password", "123456")
                 recovery = acc.get("recovery", "None")
                 two_fa = acc.get("two_fa", "None")
@@ -865,6 +844,7 @@ def callback_listener(call):
             if user_id not in user_temp_data:
                 user_temp_data[user_id] = {}
             user_temp_data[user_id]["assigned_email"] = email
+            user_temp_data[user_id]["email"] = email
             user_temp_data[user_id]["password"] = password
             user_temp_data[user_id]["account_type"] = "New Gmail"
             user_temp_data[user_id]["recovery"] = "None"
