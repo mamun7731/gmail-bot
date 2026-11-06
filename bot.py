@@ -963,9 +963,11 @@ def callback_listener(call):
             try:
                 cursor.execute("SELECT id, user_id, email, password, recovery, two_fa, account_type FROM pending_tasks WHERE status = 'pending' ORDER BY id ASC LIMIT 5 OFFSET %s", (offset,))
                 rows = cursor.fetchall()
+                print(f"DEBUG: Fetched rows: {rows}")
                 
                 cursor.execute("SELECT COUNT(*) FROM pending_tasks WHERE status = 'pending'")
                 total_pending = cursor.fetchone()[0]
+                print(f"DEBUG: Total pending: {total_pending}")
             except Exception as e:
                 print(f"Pending fetch error: {e}")
                 rows = []
@@ -1038,9 +1040,10 @@ def callback_listener(call):
                         parse_mode="Markdown",
                         reply_markup=markup
                     )
-                    time.sleep(0.3)
+                    print(f"DEBUG: Sent message for task id {t_id}")
+                    time.sleep(0.4)
                 except Exception as ex:
-                    print(f"Send task message error: {ex}")
+                    print(f"Send task message error for task {t_id}: {ex}")
 
             if offset + 5 < total_pending:
                 next_offset = offset + 5
