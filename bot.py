@@ -316,7 +316,7 @@ def handle_message(message):
         text = message.text if message.content_type == 'text' else (message.caption or "")
         text_lower = text.lower()
         
-        if "cancel" in text_lower or "back" in text_lower or "⬅️ back" in text_lower:
+        if "cancel" in text_lower or "back" in text_lower or "⬅️ back" in text_lower or "cancel registration" in text_lower:
             user_states.pop(user_id, None)
             user_temp_data.pop(user_id, None)
             bot.send_message(user_id, "Main Menu:", reply_markup=main_menu())
@@ -376,6 +376,51 @@ def handle_message(message):
                     bot.send_message(user_id, msg)
             else:
                 bot.send_message(user_id, "📁 You have not submitted any accounts yet.", reply_markup=main_menu())
+            return
+
+        if "done" in text_lower or "✔" in text:
+            email = None
+            if user_id in user_temp_data and "assigned_email" in user_temp_data[user_id]:
+                email = user_temp_data[user_id]["assigned_email"]
+            
+            conn = get_db()
+            cursor = conn.cursor()
+            if not email:
+                cursor.execute("SELECT email FROM assigned_gmails WHERE user_id = %s AND status = 'assigned' ORDER BY email DESC LIMIT 1", (user_id,))
+                assigned = cursor.fetchone()
+                if assigned:
+                    email = assigned[0]
+            
+            if not email:
+                letters = ''.join(random.choices(string.ascii_letters, k=8))
+                numbers = ''.join(random.choices(string.digits, k=4))
+                email = f"{letters}{numbers}@gmail.com"
+                cursor.execute("INSERT INTO assigned_gmails (email, user_id, status) VALUES (%s, %s, 'assigned') ON CONFLICT (email) DO NOTHING", (email, user_id))
+            
+            prefix = email.split('@')[0]
+            letters = "".join([c for c in prefix if c.isalpha()])
+            numbers = "".join([c for c in prefix if c.isdigit()])
+            password = f"{letters[:3].capitalize()}#{numbers}Xk"
+            
+            cursor.execute("UPDATE assigned_gmails SET status = 'submitted' WHERE email = %s", (email,))
+            conn.commit()
+            cursor.close()
+            conn.close()
+            
+            if user_id not in user_temp_data:
+                user_temp_data[user_id] = {}
+            user_temp_data[user_id]["assigned_email"] = email
+            user_temp_data[user_id]["email"] = email
+            user_temp_data[user_id]["password"] = password
+            user_temp_data[user_id]["account_type"] = "New Gmail"
+            user_temp_data[user_id]["recovery"] = "None"
+            
+            markup = InlineKeyboardMarkup()
+            markup.add(InlineKeyboardButton("🔐 Enable 2FA", callback_data="reg_enable_2fa"))
+            markup.add(InlineKeyboardButton("▶️ How to enable 2FA", callback_data="reg_how_to_2fa"))
+            markup.add(InlineKeyboardButton("❌ Cancel Registration", callback_data="reg_cancel"))
+            
+            bot.send_message(user_id, "Choose an option below to proceed with your registration:", reply_markup=markup)
             return
 
         if user_id in user_states:
@@ -501,13 +546,12 @@ def handle_message(message):
                 
                 user_states[user_id] = "sub_awaiting_2fa"
                 markup = ReplyKeyboardMarkup(resize_keyboard=True, selective=True)
-                markup.add(KeyboardButton("⏭ Skip 2FA QR"), KeyboardButton("🚫 Cancel registration"))
-                bot.send_message(user_id, "🔐 Please send the **2FA QR Code screenshot** (or text secret key), or tap **Skip 2FA QR**:", reply_markup=markup)
+                markup.add(KeyboardButton("⏭ Skip 2FA"), KeyboardButton("🚫 Cancel registration"))
+                bot.send_message(user_id, "🔐 Please send the **2FA QR Code screenshot** or text secret key (or tap **Skip 2FA**):", reply_markup=markup)
                 return
 
             elif state == "sub_awaiting_2fa":
                 two_fa_val = "None"
-                is_register_flow = user_temp_data.get(user_id, {}).get("account_type") == "New Gmail" and "assigned_email" in user_temp_data.get(user_id, {})
                 
                 if message.content_type == 'photo':
                     try:
@@ -526,16 +570,9 @@ def handle_message(message):
                         return
                 elif message.content_type == 'text':
                     if "skip" in text_lower or "⏭" in text:
-                        if is_register_flow:
-                            bot.send_message(user_id, "❌ 2FA QR Code is mandatory! Please send the QR screenshot or secret key.")
-                            return
                         two_fa_val = "None"
                     else:
                         two_fa_val = text.strip()
-
-                if is_register_flow and two_fa_val in ["None", "QR_Upload_Error", "QR_Uploaded_But_Not_Decoded"]:
-                    bot.send_message(user_id, "❌ সঠিকভাবে QR code স্ক্যান হয়নি। অনুগ্রহ করে আবার পরিষ্কার স্ক্রিনশট পাঠান।")
-                    return
 
                 if user_id not in user_temp_data:
                     user_temp_data[user_id] = {}
@@ -550,7 +587,8 @@ def handle_message(message):
                 
                 user_states.pop(user_id, None)
 
-                if not is_register_flow or two_fa == "None":
+                # Shob submission (Submit my own ebong Register new) er jonno ekhon 2FA thakle OTP verification screen dekhabe, na thakle direct submit hobe
+                if two_fa == "None":
                     user_temp_data.pop(user_id, None)
                     process_submission_done(user_id, email, password, recovery, two_fa, acc_type, message)
                     return
