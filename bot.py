@@ -6,7 +6,7 @@ from datetime import datetime
 import psycopg2
 import telebot
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton
-from flask import Flask, request
+from flask import Flask, request, render_template_string, redirect, url_for
 import requests
 import pyotp
 import cv2
@@ -17,6 +17,7 @@ TOKEN = '8788513514:AAGwboQDDtl198sib3_3GX3ahtmh0wg4iS0'
 bot = telebot.TeleBot(TOKEN)
 
 ADMIN_ID = 5813365228
+ADMIN_SECRET_KEY = "mamun_admin_secure_123" # ওয়েব প্যানেলে ঢোকার পাসওয়ার্ড
 
 GMAIL_RATE = 0.15
 MIN_PAYOUT = 0.20
@@ -204,6 +205,9 @@ def admin_panel(message):
         if message.chat.id != ADMIN_ID:
             return
         
+        render_url = os.environ.get("RENDER_EXTERNAL_URL", "http://localhost:10000")
+        web_admin_link = f"{render_url}/admin-panel?key={ADMIN_SECRET_KEY}"
+        
         conn = get_db()
         cursor = conn.cursor()
         cursor.execute("SELECT COUNT(*), SUM(balance) FROM users")
@@ -218,11 +222,12 @@ def admin_panel(message):
         
         markup = InlineKeyboardMarkup()
         markup.add(InlineKeyboardButton(f"🔔 Pending Approvals ({pending_count})", callback_data="admin_pending_0"))
+        markup.add(InlineKeyboardButton("🌐 Web Admin Dashboard", url=web_admin_link))
         markup.add(InlineKeyboardButton("📢 Broadcast Message", callback_data="admin_broadcast"))
         
         bot.send_message(
             message.chat.id,
-            f"👑 **Admin Dashboard**\n\n👥 Total Users: {total_users}\n💰 Total User Balance: ${total_bal}\n⏳ Pending Gmail Tasks: {pending_count}",
+            f"👑 **Admin Dashboard**\n\n👥 Total Users: {total_users}\n💰 Total User Balance: ${total_bal}\n⏳ Pending Gmail Tasks: {pending_count}\n\n💡 *অথবা নিচের ব্রাউজার লিংক থেকে সহজে টাস্ক ম্যানেজ করুন:*",
             parse_mode="Markdown",
             reply_markup=markup
         )
@@ -963,11 +968,9 @@ def callback_listener(call):
             try:
                 cursor.execute("SELECT id, user_id, email, password, recovery, two_fa, account_type FROM pending_tasks WHERE LOWER(status) = 'pending' ORDER BY id ASC LIMIT 5 OFFSET %s", (offset,))
                 rows = cursor.fetchall()
-                print(f"DEBUG: Fetched rows for offset {offset}: {rows}")
                 
                 cursor.execute("SELECT COUNT(*) FROM pending_tasks WHERE LOWER(status) = 'pending'")
                 total_pending = cursor.fetchone()[0]
-                print(f"DEBUG: Total pending count in DB: {total_pending}")
             except Exception as e:
                 print(f"Pending fetch error: {e}")
                 rows = []
@@ -976,11 +979,7 @@ def callback_listener(call):
             conn.close()
             
             if not rows:
-                bot.answer_callback_query(call.id, "No pending tasks found in database!", show_alert=True)
-                try:
-                    bot.send_message(ADMIN_ID, f"⚠️ ডাটাবেজে কোনো পেন্ডিং টাস্ক পাওয়া যায়নি! (Total pending count: {total_pending})")
-                except:
-                    pass
+                bot.answer_callback_query(call.id, "No pending tasks found!", show_alert=True)
                 return
                 
             bot.answer_callback_query(call.id, f"Showing tasks {offset+1} to {offset+len(rows)} of {total_pending}")
@@ -988,16 +987,12 @@ def callback_listener(call):
             for idx, r in enumerate(rows, start=offset+1):
                 try:
                     t_id, u_id, email, pwd, recovery, two_fa, acc_type = r[0], r[1], r[2], r[3], r[4], r[5], r[6]
-                except Exception as ex:
-                    print(f"Row unpacking error: {ex}")
+                except:
                     continue
 
-                if not acc_type:
-                    acc_type = "New Gmail"
-                if not recovery:
-                    recovery = "None"
-                if not two_fa:
-                    two_fa = "None"
+                if not acc_type: acc_type = "New Gmail"
+                if not recovery: recovery = "None"
+                if not two_fa: two_fa = "None"
                     
                 u_data = get_user_data(u_id)
                 u_bal = round(u_data["balance"], 2)
@@ -1013,8 +1008,8 @@ def callback_listener(call):
                             u_name += f" {chat_member.last_name}"
                     if chat_member.username:
                         u_username = f"@{chat_member.username}"
-                except Exception as e:
-                    print(f"Get chat error for user {u_id}: {e}")
+                except:
+                    pass
                 
                 markup = InlineKeyboardMarkup()
                 markup.add(
@@ -1043,7 +1038,7 @@ def callback_listener(call):
                     )
                     time.sleep(0.3)
                 except Exception as ex:
-                    print(f"Send task message error for task {t_id}: {ex}")
+                    print(f"Send task message error: {ex}")
 
             if offset + 5 < total_pending:
                 next_offset = offset + 5
@@ -1083,8 +1078,129 @@ def callback_listener(call):
     except Exception as e:
         print(f"callback_listener error: {e}")
 
-# Flask Web Server & Webhook Handler
+# Flask Web Server & Webhook Handler + Admin Web Dashboard
 app = Flask(__name__)
+
+ADMIN_HTML_TEMPLATE = """
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Web Dashboard - Gmail Farmer</title>
+    <style>
+        body { font-family: Arial, sans-serif; background: #0f172a; color: #f8fafc; margin: 0; padding: 20px; }
+        h1 { text-align: center; color: #38bdf8; }
+        .container { max-width: 900px; margin: auto; }
+        .task-card { background: #1e293b; border-radius: 8px; padding: 15px; margin-bottom: 15px; box-shadow: 0 4px 6px rgba(0,0,0,0.3); }
+        .task-info { margin-bottom: 10px; font-size: 14px; line-height: 1.5; }
+        .task-info span { color: #38bdf8; font-weight: bold; }
+        .btn-group { display: flex; gap: 10px; }
+        .btn { padding: 8px 15px; border: none; border-radius: 5px; cursor: pointer; font-weight: bold; text-decoration: none; color: white; display: inline-block; }
+        .btn-approve { background: #22c55e; }
+        .btn-reject { background: #ef4444; }
+        .no-task { text-align: center; font-size: 18px; color: #94a3b8; margin-top: 50px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>👑 Admin Web Dashboard (Pending Tasks)</h1>
+        {% if tasks %}
+            {% for t in tasks %}
+            <div class="task-card">
+                <div class="task-info">
+                    🆔 <b>Task ID:</b> {{ t[0] }} | 👤 <b>User ID:</b> {{ t[1] }}<br>
+                    📂 <b>Type:</b> <span>{{ t[6] }}</span><br>
+                    📧 <b>Email:</b> <code>{{ t[2] }}</code><br>
+                    🔑 <b>Password:</b> <code>{{ t[3] }}</code><br>
+                    🔄 <b>Recovery:</b> <code>{{ t[4] }}</code><br>
+                    🔐 <b>2FA Key:</b> <code>{{ t[5] }}</code><br>
+                    📋 <b>Format:</b> <code>{{ t[2] }}:{{ t[3] }}::{{ t[5] }}</code>
+                </div>
+                <div class="btn-group">
+                    <a href="/admin-action?key={{ key }}&action=approve&task_id={{ t[0] }}&user_id={{ t[1] }}" class="btn btn-approve">✅ Approve ($0.15)</a>
+                    <a href="/admin-action?key={{ key }}&action=reject&task_id={{ t[0] }}&user_id={{ t[1] }}" class="btn btn-reject">❌ Reject</a>
+                </div>
+            </div>
+            {% endfor %}
+        {% else %}
+            <div class="no-task">🎉 No pending tasks available right now!</div>
+        {% endif %}
+    </div>
+</body>
+</html>
+"""
+
+@app.route('/admin-panel')
+def admin_web_panel():
+    key = request.args.get('key')
+    if key != ADMIN_SECRET_KEY:
+        return "Unauthorized Access!", 403
+    
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute("SELECT id, user_id, email, password, recovery, two_fa, account_type FROM pending_tasks WHERE LOWER(status) = 'pending' ORDER BY id ASC")
+    tasks = cursor.fetchall()
+    cursor.close()
+    conn.close()
+    
+    return render_template_string(ADMIN_HTML_TEMPLATE, tasks=tasks, key=key)
+
+@app.route('/admin-action')
+def admin_web_action():
+    key = request.args.get('key')
+    if key != ADMIN_SECRET_KEY:
+        return "Unauthorized Access!", 403
+        
+    action = request.args.get('action')
+    task_id = request.args.get('task_id')
+    user_id = request.args.get('user_id')
+    
+    if not action or not task_id or not user_id:
+        return "Invalid parameters!", 400
+        
+    task_id = int(task_id)
+    user_id = int(user_id)
+    
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute("SELECT email, status FROM pending_tasks WHERE id = %s", (task_id,))
+    task = cursor.fetchone()
+    
+    if not task or task[1] != 'pending':
+        cursor.close()
+        conn.close()
+        return "Task not found or already processed!", 400
+        
+    email = task[0]
+    
+    if action == 'approve':
+        cursor.execute("UPDATE pending_tasks SET status = 'approved' WHERE id = %s", (task_id,))
+        cursor.execute("UPDATE users SET balance = balance + %s, hold_balance = GREATEST(0, hold_balance - %s), completed_count = completed_count + 1 WHERE user_id = %s", (GMAIL_RATE, GMAIL_RATE, user_id))
+        cursor.execute("INSERT INTO history (user_id, text) VALUES (%s, %s)", (user_id, f"+${GMAIL_RATE:.2f} - Gmail Approved ({email})"))
+        conn.commit()
+        cursor.close()
+        conn.close()
+        
+        try:
+            bot.send_message(user_id, f"🎉 Good news! Your Gmail account ({email}) has been approved. +${GMAIL_RATE:.2f} added to your balance!")
+        except:
+            pass
+            
+    elif action == 'reject':
+        cursor.execute("UPDATE pending_tasks SET status = 'rejected', reason = 'Rejected via Web Panel' WHERE id = %s", (task_id,))
+        cursor.execute("UPDATE users SET hold_balance = GREATEST(0, hold_balance - %s) WHERE user_id = %s", (GMAIL_RATE, user_id))
+        cursor.execute("INSERT INTO history (user_id, text) VALUES (%s, %s)", (user_id, f"Rejected - Gmail ({email})"))
+        conn.commit()
+        cursor.close()
+        conn.close()
+        
+        try:
+            bot.send_message(user_id, f"❌ Sorry, your Gmail account (`{email}`) submission was rejected via web panel.", parse_mode="Markdown")
+        except:
+            pass
+            
+    return redirect(url_for('admin_web_panel', key=key))
 
 @app.route(f"/{TOKEN}", methods=['POST'])
 def webhook():
@@ -1097,7 +1213,7 @@ def webhook():
 
 @app.route('/')
 def home():
-    return "Bot is running in Webhook mode successfully!"
+    return "Bot & Web Admin Dashboard is running successfully!"
 
 if __name__ == "__main__":
     try:
