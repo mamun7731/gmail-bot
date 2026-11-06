@@ -17,7 +17,7 @@ TOKEN = '8788513514:AAGwboQDDtl198sib3_3GX3ahtmh0wg4iS0'
 bot = telebot.TeleBot(TOKEN)
 
 ADMIN_ID = 5813365228
-ADMIN_SECRET_KEY = "mamun_admin_secure_123" # ওয়েব প্যানেলে ঢোকার পাসওয়ার্ড
+ADMIN_SECRET_KEY = "mamun_admin_secure_123"
 
 GMAIL_RATE = 0.15
 MIN_PAYOUT = 0.20
@@ -1093,14 +1093,29 @@ ADMIN_HTML_TEMPLATE = """
         h1 { text-align: center; color: #38bdf8; }
         .container { max-width: 900px; margin: auto; }
         .task-card { background: #1e293b; border-radius: 8px; padding: 15px; margin-bottom: 15px; box-shadow: 0 4px 6px rgba(0,0,0,0.3); }
-        .task-info { margin-bottom: 10px; font-size: 14px; line-height: 1.5; }
+        .task-info { margin-bottom: 10px; font-size: 14px; line-height: 1.6; }
         .task-info span { color: #38bdf8; font-weight: bold; }
-        .btn-group { display: flex; gap: 10px; }
-        .btn { padding: 8px 15px; border: none; border-radius: 5px; cursor: pointer; font-weight: bold; text-decoration: none; color: white; display: inline-block; }
+        .btn-group { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 10px; }
+        .btn { padding: 8px 15px; border: none; border-radius: 5px; cursor: pointer; font-weight: bold; text-decoration: none; color: white; display: inline-block; font-size: 13px; }
         .btn-approve { background: #22c55e; }
+        .btn-custom { background: #eab308; color: #000; }
         .btn-reject { background: #ef4444; }
         .no-task { text-align: center; font-size: 18px; color: #94a3b8; margin-top: 50px; }
+        .reject-form { display: none; margin-top: 10px; background: #334155; padding: 12px; border-radius: 5px; }
+        .reject-form input[type="text"] { width: 100%; padding: 8px; border: none; border-radius: 4px; margin-bottom: 8px; box-sizing: border-box; }
+        .reject-form input[type="file"] { margin-bottom: 8px; color: #f8fafc; }
+        .reject-form button { padding: 6px 12px; background: #ef4444; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; }
     </style>
+    <script>
+        function toggleRejectForm(taskId) {
+            var form = document.getElementById('reject-form-' + taskId);
+            if (form.style.display === 'none') {
+                form.style.display = 'block';
+            } else {
+                form.style.display = 'none';
+            }
+        }
+    </script>
 </head>
 <body>
     <div class="container">
@@ -1109,17 +1124,33 @@ ADMIN_HTML_TEMPLATE = """
             {% for t in tasks %}
             <div class="task-card">
                 <div class="task-info">
-                    🆔 <b>Task ID:</b> {{ t[0] }} | 👤 <b>User ID:</b> {{ t[1] }}<br>
-                    📂 <b>Type:</b> <span>{{ t[6] }}</span><br>
-                    📧 <b>Email:</b> <code>{{ t[2] }}</code><br>
-                    🔑 <b>Password:</b> <code>{{ t[3] }}</code><br>
-                    🔄 <b>Recovery:</b> <code>{{ t[4] }}</code><br>
-                    🔐 <b>2FA Key:</b> <code>{{ t[5] }}</code><br>
-                    📋 <b>Format:</b> <code>{{ t[2] }}:{{ t[3] }}::{{ t[5] }}</code>
+                    🆔 <b>Task ID:</b> {{ t.id }} | 👤 <b>User ID:</b> {{ t.user_id }}<br>
+                    👤 <b>Name:</b> <span>{{ t.name }}</span> | 🔗 <b>Username:</b> <span>{{ t.username }}</span><br>
+                    💰 <b>User Balance:</b> ${{ t.user_bal }} | ✅ <b>Approved Tasks:</b> {{ t.user_completed }}<br>
+                    📂 <b>Type:</b> <span>{{ t.account_type }}</span><br>
+                    📧 <b>Email:</b> <code>{{ t.email }}</code><br>
+                    🔑 <b>Password:</b> <code>{{ t.password }}</code><br>
+                    🔄 <b>Recovery:</b> <code>{{ t.recovery }}</code><br>
+                    🔐 <b>2FA Key:</b> <code>{{ t.two_fa }}</code><br>
+                    📋 <b>Format:</b> <code>{{ t.email }}:{{ t.password }}::{{ t.two_fa }}</code>
                 </div>
                 <div class="btn-group">
-                    <a href="/admin-action?key={{ key }}&action=approve&task_id={{ t[0] }}&user_id={{ t[1] }}" class="btn btn-approve">✅ Approve ($0.15)</a>
-                    <a href="/admin-action?key={{ key }}&action=reject&task_id={{ t[0] }}&user_id={{ t[1] }}" class="btn btn-reject">❌ Reject</a>
+                    <a href="/admin-action?key={{ key }}&action=approve&task_id={{ t.id }}&user_id={{ t.user_id }}" class="btn btn-approve">✅ Approve ($0.15)</a>
+                    <button onclick="let p=prompt('Enter custom price (e.g. 0.30):'); if(p){window.location.href='/admin-action?key={{ key }}&action=custom&task_id={{ t.id }}&user_id={{ t.user_id }}&price='+p;}" class="btn btn-custom">💵 Custom Price</button>
+                    <button onclick="toggleRejectForm('{{ t.id }}')" class="btn btn-reject">❌ Reject</button>
+                </div>
+                <div id="reject-form-{{ t.id }}" class="reject-form">
+                    <form action="/admin-action" method="POST" enctype="multipart/form-data">
+                        <input type="hidden" name="key" value="{{ key }}">
+                        <input type="hidden" name="action" value="reject">
+                        <input type="hidden" name="task_id" value="{{ t.id }}">
+                        <input type="hidden" name="user_id" value="{{ t.user_id }}">
+                        <input type="text" name="reason" placeholder="Enter reject reason (e.g. Wrong password)..." required>
+                        <div style="font-size: 13px; margin-bottom: 5px; color: #cbd5e1;">Attach Proof Screenshot (Optional):</div>
+                        <input type="file" name="proof_pic" accept="image/*">
+                        <br>
+                        <button type="submit">Submit Reject</button>
+                    </form>
                 </div>
             </div>
             {% endfor %}
@@ -1140,22 +1171,67 @@ def admin_web_panel():
     conn = get_db()
     cursor = conn.cursor()
     cursor.execute("SELECT id, user_id, email, password, recovery, two_fa, account_type FROM pending_tasks WHERE LOWER(status) = 'pending' ORDER BY id ASC")
-    tasks = cursor.fetchall()
+    raw_tasks = cursor.fetchall()
     cursor.close()
     conn.close()
     
+    tasks = []
+    for r in raw_tasks:
+        t_id, u_id, email, pwd, recovery, two_fa, acc_type = r[0], r[1], r[2], r[3], r[4], r[5], r[6]
+        
+        u_data = get_user_data(u_id)
+        u_bal = round(u_data["balance"], 2)
+        u_completed = u_data["completed_count"]
+        
+        u_name = "Unknown"
+        u_username = "No Username"
+        try:
+            chat_member = bot.get_chat(u_id)
+            if chat_member.first_name:
+                u_name = chat_member.first_name
+                if chat_member.last_name:
+                    u_name += f" {chat_member.last_name}"
+            if chat_member.username:
+                u_username = f"@{chat_member.username}"
+        except:
+            pass
+            
+        tasks.append({
+            "id": t_id,
+            "user_id": u_id,
+            "name": u_name,
+            "username": u_username,
+            "user_bal": u_bal,
+            "user_completed": u_completed,
+            "email": email,
+            "password": pwd,
+            "recovery": recovery if recovery else "None",
+            "two_fa": two_fa if two_fa else "None",
+            "account_type": acc_type if acc_type else "New Gmail"
+        })
+    
     return render_template_string(ADMIN_HTML_TEMPLATE, tasks=tasks, key=key)
 
-@app.route('/admin-action')
+@app.route('/admin-action', methods=['GET', 'POST'])
 def admin_web_action():
-    key = request.args.get('key')
+    if request.method == 'POST':
+        key = request.form.get('key')
+        action = request.form.get('action')
+        task_id = request.form.get('task_id')
+        user_id = request.form.get('user_id')
+        reason = request.form.get('reason', 'Rejected via Web Panel')
+        proof_file = request.files.get('proof_pic')
+    else:
+        key = request.args.get('key')
+        action = request.args.get('action')
+        task_id = request.args.get('task_id')
+        user_id = request.args.get('user_id')
+        reason = request.args.get('reason', 'Rejected via Web Panel')
+        proof_file = None
+
     if key != ADMIN_SECRET_KEY:
         return "Unauthorized Access!", 403
         
-    action = request.args.get('action')
-    task_id = request.args.get('task_id')
-    user_id = request.args.get('user_id')
-    
     if not action or not task_id or not user_id:
         return "Invalid parameters!", 400
         
@@ -1175,7 +1251,7 @@ def admin_web_action():
     email = task[0]
     
     if action == 'approve':
-        cursor.execute("UPDATE pending_tasks SET status = 'approved' WHERE id = %s", (task_id,))
+        cursor.execute("UPDATE pending_tasks SET status = 'approved', reward_amount = %s WHERE id = %s", (GMAIL_RATE, task_id))
         cursor.execute("UPDATE users SET balance = balance + %s, hold_balance = GREATEST(0, hold_balance - %s), completed_count = completed_count + 1 WHERE user_id = %s", (GMAIL_RATE, GMAIL_RATE, user_id))
         cursor.execute("INSERT INTO history (user_id, text) VALUES (%s, %s)", (user_id, f"+${GMAIL_RATE:.2f} - Gmail Approved ({email})"))
         conn.commit()
@@ -1187,8 +1263,30 @@ def admin_web_action():
         except:
             pass
             
+    elif action == 'custom':
+        try:
+            custom_price = float(request.args.get('price', GMAIL_RATE))
+        except ValueError:
+            custom_price = GMAIL_RATE
+            
+        cursor.execute("UPDATE pending_tasks SET status = 'approved', reward_amount = %s WHERE id = %s", (custom_price, task_id))
+        cursor.execute("UPDATE users SET balance = balance + %s, hold_balance = GREATEST(0, hold_balance - %s), completed_count = completed_count + 1 WHERE user_id = %s", (custom_price, GMAIL_RATE, user_id))
+        cursor.execute("INSERT INTO history (user_id, text) VALUES (%s, %s)", (user_id, f"+${custom_price:.2f} - Gmail Approved ({email}) [Custom]"))
+        conn.commit()
+        cursor.close()
+        conn.close()
+        
+        try:
+            bot.send_message(user_id, f"🎉 Good news! Your Gmail account ({email}) has been approved with custom reward +${custom_price:.2f} added to your balance!")
+        except:
+            pass
+            
     elif action == 'reject':
-        cursor.execute("UPDATE pending_tasks SET status = 'rejected', reason = 'Rejected via Web Panel' WHERE id = %s", (task_id,))
+        final_reason = reason
+        if proof_file and proof_file.filename != '':
+            final_reason = f"{reason} [Photo attached]"
+
+        cursor.execute("UPDATE pending_tasks SET status = 'rejected', reason = %s WHERE id = %s", (final_reason, task_id))
         cursor.execute("UPDATE users SET hold_balance = GREATEST(0, hold_balance - %s) WHERE user_id = %s", (GMAIL_RATE, user_id))
         cursor.execute("INSERT INTO history (user_id, text) VALUES (%s, %s)", (user_id, f"Rejected - Gmail ({email})"))
         conn.commit()
@@ -1196,9 +1294,13 @@ def admin_web_action():
         conn.close()
         
         try:
-            bot.send_message(user_id, f"❌ Sorry, your Gmail account (`{email}`) submission was rejected via web panel.", parse_mode="Markdown")
-        except:
-            pass
+            if proof_file and proof_file.filename != '':
+                file_bytes = proof_file.read()
+                bot.send_photo(user_id, photo=file_bytes, caption=f"❌ Sorry, your Gmail account (`{email}`) submission was rejected.\n\n📝 **Reason:** {reason}", parse_mode="Markdown")
+            else:
+                bot.send_message(user_id, f"❌ Sorry, your Gmail account (`{email}`) submission was rejected.\n\n📝 **Reason:** {reason}", parse_mode="Markdown")
+        except Exception as e:
+            print(f"Send reject notification error: {e}")
             
     return redirect(url_for('admin_web_panel', key=key))
 
