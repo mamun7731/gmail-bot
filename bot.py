@@ -208,7 +208,7 @@ def admin_panel(message):
         cursor = conn.cursor()
         cursor.execute("SELECT COUNT(*), SUM(balance) FROM users")
         stats = cursor.fetchone()
-        cursor.execute("SELECT COUNT(*) FROM pending_tasks WHERE status = 'pending'")
+        cursor.execute("SELECT COUNT(*) FROM pending_tasks WHERE LOWER(status) = 'pending'")
         pending_count = cursor.fetchone()[0]
         cursor.close()
         conn.close()
@@ -961,13 +961,13 @@ def callback_listener(call):
             conn = get_db()
             cursor = conn.cursor()
             try:
-                cursor.execute("SELECT id, user_id, email, password, recovery, two_fa, account_type FROM pending_tasks WHERE status = 'pending' ORDER BY id ASC LIMIT 5 OFFSET %s", (offset,))
+                cursor.execute("SELECT id, user_id, email, password, recovery, two_fa, account_type FROM pending_tasks WHERE LOWER(status) = 'pending' ORDER BY id ASC LIMIT 5 OFFSET %s", (offset,))
                 rows = cursor.fetchall()
-                print(f"DEBUG: Fetched rows: {rows}")
+                print(f"DEBUG: Fetched rows for offset {offset}: {rows}")
                 
-                cursor.execute("SELECT COUNT(*) FROM pending_tasks WHERE status = 'pending'")
+                cursor.execute("SELECT COUNT(*) FROM pending_tasks WHERE LOWER(status) = 'pending'")
                 total_pending = cursor.fetchone()[0]
-                print(f"DEBUG: Total pending: {total_pending}")
+                print(f"DEBUG: Total pending count in DB: {total_pending}")
             except Exception as e:
                 print(f"Pending fetch error: {e}")
                 rows = []
@@ -975,11 +975,12 @@ def callback_listener(call):
             cursor.close()
             conn.close()
             
-            if not rows and offset == 0:
-                bot.answer_callback_query(call.id, "No pending tasks found!", show_alert=True)
-                return
-            elif not rows:
-                bot.answer_callback_query(call.id, "No more pending tasks!", show_alert=True)
+            if not rows:
+                bot.answer_callback_query(call.id, "No pending tasks found in database!", show_alert=True)
+                try:
+                    bot.send_message(ADMIN_ID, f"⚠️ ডাটাবেজে কোনো পেন্ডিং টাস্ক পাওয়া যায়নি! (Total pending count: {total_pending})")
+                except:
+                    pass
                 return
                 
             bot.answer_callback_query(call.id, f"Showing tasks {offset+1} to {offset+len(rows)} of {total_pending}")
@@ -1040,8 +1041,7 @@ def callback_listener(call):
                         parse_mode="Markdown",
                         reply_markup=markup
                     )
-                    print(f"DEBUG: Sent message for task id {t_id}")
-                    time.sleep(0.4)
+                    time.sleep(0.3)
                 except Exception as ex:
                     print(f"Send task message error for task {t_id}: {ex}")
 
