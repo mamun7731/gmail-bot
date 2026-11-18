@@ -20,7 +20,7 @@ ADMIN_ID = 5813365228
 ADMIN_SECRET_KEY = "mamun_admin_secure_123"
 
 GMAIL_RATE = 0.15
-MIN_PAYOUT = 0.20
+MIN_PAYOUT = 0.15
 REF_BONUS = 0.02
 
 HOW_TO_2FA_VIDEO = "https://t.me/Gmail_Farmer2_0News/22"
