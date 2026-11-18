@@ -20,7 +20,7 @@ ADMIN_ID = 5813365228
 ADMIN_SECRET_KEY = "mamun_admin_secure_123"
 
 GMAIL_RATE = 0.15
-MIN_PAYOUT = 0.20
+MIN_PAYOUT = 0.15  # Minimum payout updated to $0.15
 REF_BONUS = 0.02
 
 HOW_TO_2FA_VIDEO = "https://t.me/Gmail_Farmer2_0News/22"
@@ -587,7 +587,6 @@ def handle_message(message):
                 
                 user_states.pop(user_id, None)
 
-                # Shob submission (Submit my own ebong Register new) er jonno ekhon 2FA thakle OTP verification screen dekhabe, na thakle direct submit hobe
                 if two_fa == "None":
                     user_temp_data.pop(user_id, None)
                     process_submission_done(user_id, email, password, recovery, two_fa, acc_type, message)
