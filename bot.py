@@ -2,6 +2,7 @@ import os
 import random
 import string
 import time
+import threading
 from datetime import datetime
 import psycopg2
 import telebot
@@ -14,13 +15,13 @@ import numpy as np
 import io
 
 TOKEN = '8788513514:AAGwboQDDtl198sib3_3GX3ahtmh0wg4iS0'
-bot = telebot.TeleBot(TOKEN)
+bot = telebot.TeleBot(TOKEN, parse_mode=None)
 
 ADMIN_ID = 5813365228
 ADMIN_SECRET_KEY = "mamun_admin_secure_123"
 
 GMAIL_RATE = 0.15
-MIN_PAYOUT = 0.15  # Minimum payout updated to $0.15
+MIN_PAYOUT = 0.15
 REF_BONUS = 0.02
 
 HOW_TO_2FA_VIDEO = "https://t.me/Gmail_Farmer2_0News/22"
@@ -1095,7 +1096,7 @@ def callback_listener(call):
     except Exception as e:
         print(f"callback_listener error: {e}")
 
-# Flask Web Server & Webhook Handler + Admin Web Dashboard
+# Flask Web Server & Admin Web Dashboard
 app = Flask(__name__)
 
 ADMIN_HTML_TEMPLATE = """
@@ -1321,30 +1322,24 @@ def admin_web_action():
             
     return redirect(url_for('admin_web_panel', key=key))
 
-@app.route(f"/{TOKEN}", methods=['POST'])
-def webhook():
-    if request.headers.get('content-type') == 'application/json':
-        json_string = request.get_data().decode('utf-8')
-        update = telebot.types.Update.de_json(json_string)
-        bot.process_new_updates([update])
-        return '', 200
-    return 'Forbidden', 403
-
 @app.route('/')
 def home():
     return "Bot & Web Admin Dashboard is running successfully!"
 
-if __name__ == "__main__":
+def run_bot():
     try:
+        # Webhook remove kore polling mode-e chalanor jonno jate Render-e kono port/webhook conflict na hoy
         requests.get(f"https://api.telegram.org/bot{TOKEN}/deleteWebhook?drop_pending_updates=true")
-        
-        render_url = os.environ.get("RENDER_EXTERNAL_URL")
-        if render_url:
-            webhook_url = f"{render_url}/{TOKEN}"
-            bot.set_webhook(url=webhook_url)
-            print(f"Webhook forcefully set to: {webhook_url}")
-
-        port = int(os.environ.get("PORT", 10000))
-        app.run(host="0.0.0.0", port=port)
+        print("Telegram bot started polling in background thread...")
+        bot.infinity_polling(skip_pending=True)
     except Exception as e:
-        print(f"Server startup error: {e}")
+        print(f"Bot polling error: {e}")
+
+if __name__ == "__main__":
+    # Bot-ke alada background thread-e start kora holo
+    bot_thread = threading.Thread(target=run_bot, daemon=True)
+    bot_thread.start()
+
+    # Flask web server-ke Render er port diye run kora holo
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host="0.0.0.0", port=port)
